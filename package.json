@@ -39,13 +39,13 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@vitest/browser-playwright": "^4.0.18",
-    "@vitest/coverage-v8": "^4.0.18",
-    "jsdom": "^28.1.0",
-    "oxfmt": "^0.35.0",
-    "publint": "^0.3.17",
-    "tsdown": "^0.20.3",
-    "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "@vitest/browser-playwright": "^4.1.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "jsdom": "^29.0.1",
+    "oxfmt": "^0.43.0",
+    "publint": "^0.3.18",
+    "tsdown": "^0.21.7",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
   }
 }
