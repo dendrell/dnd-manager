@@ -403,6 +403,8 @@ onDragEnd: (result) => {
 - Uses `requestAnimationFrame` for 60fps drag updates.
 - Uses pointer events (works with touch, mouse, and pen).
 - Uses `setPointerCapture` / `releasePointerCapture` when available.
+- Swallows the native `click` that follows the release ending a drag (also after Escape cancelled it
+  while the pointer was down), so draggable buttons and links are not activated by a drop.
 - `data-dragging` and `data-hovered` attributes are always cleaned up automatically.
 - Auto-scroll activates when pointer is within `scrollThreshold` pixels of viewport edges during
   drag.

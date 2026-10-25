@@ -1,7 +1,20 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { DragDropManager } from '../../src/index'
+import { DragDropManager as BaseDragDropManager } from '../../src/index'
 
 type Item = { id: string }
+
+/** Every manager a test creates, destroyed after it so no window listener leaks into the next. */
+const liveManagers = new Set<BaseDragDropManager<any, any>>()
+
+class DragDropManager<TItem = unknown, TPosition = unknown> extends BaseDragDropManager<
+  TItem,
+  TPosition
+> {
+  constructor(...args: ConstructorParameters<typeof BaseDragDropManager<TItem, TPosition>>) {
+    super(...args)
+    liveManagers.add(this)
+  }
+}
 
 function setupDom(): {
   container: HTMLElement
@@ -51,6 +64,8 @@ describe('DragDropManager', () => {
   })
 
   afterEach(() => {
+    for (const manager of liveManagers) manager.destroy()
+    liveManagers.clear()
     document.body.innerHTML = ''
   })
 
@@ -567,6 +582,108 @@ describe('DragDropManager', () => {
 
     expect(onDragEnd).not.toHaveBeenCalled()
     expect(manager.isDragging()).toBe(true)
+  })
+
+  test('swallows the native click that follows a drop', () => {
+    const { container, source, target } = setupDom()
+    mockElementFromPoint(() => target)
+    const onNativeClick = vi.fn()
+    source.addEventListener('click', onNativeClick)
+    const manager = new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1 },
+      {
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    source.dispatchEvent(pointerEvent('pointermove', 2, 0))
+    source.dispatchEvent(pointerEvent('pointerup', 10, 10))
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+    source.dispatchEvent(click)
+
+    expect(onNativeClick).not.toHaveBeenCalled()
+    expect(click.defaultPrevented).toBe(true)
+
+    // Only that one click: the next one goes through.
+    source.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(onNativeClick).toHaveBeenCalledOnce()
+    manager.destroy()
+  })
+
+  test('swallows the click after Escape cancels a drag while the pointer is still down', () => {
+    const { container, source } = setupDom()
+    const onNativeClick = vi.fn()
+    source.addEventListener('click', onNativeClick)
+    const manager = new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1 },
+      {
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    source.dispatchEvent(pointerEvent('pointermove', 2, 0))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    source.dispatchEvent(pointerEvent('pointerup', 2, 0))
+    source.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    expect(onNativeClick).not.toHaveBeenCalled()
+    manager.destroy()
+  })
+
+  test('lets the click of a press that never dragged through', () => {
+    const { container, source } = setupDom()
+    const onNativeClick = vi.fn()
+    source.addEventListener('click', onNativeClick)
+    const manager = new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item' },
+      {
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    source.dispatchEvent(pointerEvent('pointerup', 1, 0))
+    source.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+    expect(onNativeClick).toHaveBeenCalledOnce()
+    manager.destroy()
+  })
+
+  test('stops blocking clicks when none follows the drop', () => {
+    vi.useFakeTimers()
+    try {
+      const { container, source } = setupDom()
+      mockElementFromPoint(() => null)
+      const onNativeClick = vi.fn()
+      source.addEventListener('click', onNativeClick)
+      const manager = new DragDropManager<Item, string>(
+        container,
+        { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1 },
+        {
+          getItemPosition: (element) => element.dataset.id ?? null,
+          getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+        },
+      )
+
+      source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      source.dispatchEvent(pointerEvent('pointermove', 2, 0))
+      source.dispatchEvent(pointerEvent('pointerup', 2, 0))
+      vi.runAllTimers()
+      source.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+
+      expect(onNativeClick).toHaveBeenCalledOnce()
+      manager.destroy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('cancels an active drag when pointer leaves the window', () => {

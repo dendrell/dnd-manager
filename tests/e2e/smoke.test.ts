@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { page } from 'vitest/browser'
+import { page, userEvent } from 'vitest/browser'
 import { renderCrossContainerHarness, renderHarness } from './render-harness.js'
 
 test('loads the static dist harness', async () => {
@@ -51,6 +51,27 @@ test('dragging A to B drops, swaps labels, and cleans up drag state', async () =
     .element(page.getByTestId('grid').getByTestId('cell-a'))
     .not.toHaveAttribute('data-dragging')
 
+  harness.destroy()
+})
+
+test('a real mouse drag drops without a native click on the source', async () => {
+  const harness = renderHarness()
+  const nativeClicks: string[] = []
+  const countClick = (event: MouseEvent): void => {
+    nativeClicks.push((event.target as HTMLElement).dataset.testid ?? 'other')
+  }
+  document.addEventListener('click', countClick)
+
+  await userEvent.dragAndDrop(
+    page.getByTestId('grid').getByTestId('cell-a'),
+    page.getByTestId('grid').getByTestId('cell-b'),
+  )
+
+  await expect.element(page.getByTestId('grid').getByTestId('cell-b')).toHaveTextContent('Alpha')
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  expect(nativeClicks).toEqual([])
+
+  document.removeEventListener('click', countClick)
   harness.destroy()
 })
 

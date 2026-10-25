@@ -151,6 +151,12 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   }
   private rafId: number | null = null
   private lastPointerPos: PointerPosition | null = null
+  /**
+   * Set while a drag holds the pointer down: the browser follows the release with a native
+   * `click` (on the source element under pointer capture), which must not activate it.
+   */
+  private suppressClickOnRelease = false
+  private releaseClickBlocker: (() => void) | null = null
   private boundHandlers: {
     pointerDown: (e: PointerEvent) => void
     pointerMove: (e: PointerEvent) => void
@@ -281,6 +287,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       if (distance >= this.config.dragThreshold) {
         // Start drag
         this.state.isDragging = true
+        this.suppressClickOnRelease = true
 
         if (this.state.sourceElement && this.state.sourcePosition && this.state.sourceItem) {
           // Set data-dragging attribute on source
@@ -344,6 +351,12 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   private handlePointerUp(e: PointerEvent): void {
     if (!this.isActivePointer(e)) return
 
+    // Also after a drag that Escape cancelled while the pointer stayed down.
+    if (this.suppressClickOnRelease) {
+      this.suppressClickOnRelease = false
+      this.blockNextClick()
+    }
+
     // Handle click/tap if we never started dragging
     if (this.state.startPosition && !this.state.isDragging) {
       const currentPos = { x: e.clientX, y: e.clientY }
@@ -390,6 +403,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   }
 
   private handlePointerCancel(): void {
+    // No click follows a cancelled pointer.
+    this.suppressClickOnRelease = false
     this.cleanup()
   }
 
@@ -401,10 +416,33 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   }
 
   private handleMouseOut(e: MouseEvent): void {
+    if (e.relatedTarget !== null) return
+    // A release outside the window clicks nothing in the page.
+    this.suppressClickOnRelease = false
     if (!this.config.cancelOnPointerLeave) return
     if (!this.state.startPosition) return
-    if (e.relatedTarget !== null) return
     this.cleanup()
+  }
+
+  /**
+   * Swallows the `click` the browser dispatches right after the release that ended a drag, in the
+   * same task; a timeout lets the blocker go when no click comes.
+   */
+  private blockNextClick(): void {
+    this.releaseClickBlocker?.()
+    const block = (event: MouseEvent): void => {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      release()
+    }
+    const release = (): void => {
+      window.removeEventListener('click', block, true)
+      clearTimeout(timer)
+      if (this.releaseClickBlocker === release) this.releaseClickBlocker = null
+    }
+    window.addEventListener('click', block, true)
+    const timer = setTimeout(release, 0)
+    this.releaseClickBlocker = release
   }
 
   private handleAutoScroll(pos: PointerPosition): void {
@@ -546,6 +584,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
    */
   public destroy(): void {
     this.cleanup()
+    this.suppressClickOnRelease = false
+    this.releaseClickBlocker?.()
     this.container.removeEventListener('pointerdown', this.boundHandlers.pointerDown)
     this.container.removeEventListener('pointermove', this.boundHandlers.pointerMove)
     this.container.removeEventListener('pointerup', this.boundHandlers.pointerUp)

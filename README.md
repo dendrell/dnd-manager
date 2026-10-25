@@ -282,5 +282,8 @@ need to be recreated when state changes.
 ### Notes
 
 - Uses `requestAnimationFrame` for 60fps updates; pointer events work with touch, mouse, and pen.
+- The native `click` the browser fires after the release that ends a drag (on the source element,
+  which holds pointer capture) is swallowed, so a draggable `<button>` or link is not activated by a
+  drop. A press that never became a drag clicks as usual.
 - React: create manager in `useEffect`, depend on grid state if `getItemData` uses it, and destroy
   on cleanup.
