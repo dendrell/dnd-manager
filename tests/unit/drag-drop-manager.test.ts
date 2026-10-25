@@ -166,9 +166,29 @@ describe('DragDropManager', () => {
     }
 
     const secondTouch = new MouseEvent('pointerdown', { bubbles: true })
-    Object.defineProperty(secondTouch, 'isPrimary', { value: false })
+    Object.defineProperties(secondTouch, {
+      pointerType: { value: 'touch' },
+      isPrimary: { value: false },
+    })
     source.dispatchEvent(secondTouch)
     expect(manager.getState().startPosition).toBeNull()
+  })
+
+  test('accepts constructed pointer events, which default to isPrimary false', () => {
+    const { container, source } = setupDom()
+    const manager = new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item' },
+      {
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    const event = new MouseEvent('pointerdown', { bubbles: true, clientX: 5, clientY: 5 })
+    Object.defineProperties(event, { pointerType: { value: '' }, isPrimary: { value: false } })
+    source.dispatchEvent(event)
+    expect(manager.getState().startPosition).toEqual({ x: 5, y: 5 })
   })
 
   test('ignores pointer down when element is marked empty', () => {

@@ -228,9 +228,10 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
   private handlePointerDown(e: PointerEvent): void {
     if (this.state.startPosition) return
-    // Only the main button (or a touch/pen contact) of the primary pointer drags: a right-click
-    // opens a context menu and a middle-click auto-scrolls.
-    if (e.button !== 0 || e.isPrimary === false) return
+    // Only the main button (or a touch/pen contact) drags: a right-click opens a context menu and a
+    // middle-click auto-scrolls. An extra finger is part of a pinch, not a drag. (Only touch has
+    // non-primary pointers; a constructed PointerEvent defaults to `isPrimary: false`.)
+    if (e.button !== 0 || (e.pointerType === 'touch' && !e.isPrimary)) return
 
     const target = e.target as HTMLElement
     const draggableMatch = this.findElementByKinds(target, this.draggableKinds)
