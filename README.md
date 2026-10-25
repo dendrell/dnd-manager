@@ -325,6 +325,7 @@ new DragDropManager(
 | `cancelOnPointerLeave`            | Cancel when pointer leaves window (default true).                                                        |
 | `dropScope`                       | `'document'` (default): drop on matching droppables anywhere; `'container'`: only inside this container. |
 | `keyboard`                        | Keyboard pick-and-place (default false); see [Keyboard](#keyboard).                                      |
+| `focusOnPress`                    | A press focuses the draggable, as a click would (default false); see below.                              |
 
 ### Conventions
 
@@ -343,6 +344,12 @@ new DragDropManager(
 ### Notes
 
 - Uses `requestAnimationFrame` for 60fps updates; pointer events work with touch, mouse, and pen.
+- **Focus.** By default a press on a draggable is cancelled (`preventDefault` on `pointerdown`),
+  which keeps the browser from selecting text or dragging an `<img>` or link natively, but also
+  keeps focus where it was. `focusOnPress: true` lets the press through and cancels `selectstart`
+  and `dragstart` while it is held instead: the draggable gets focus like a clicked button (no focus
+  ring for a mouse, per `:focus-visible`), so focus styles, keyboard follow-ups and a virtual list
+  that keeps its focused row rendered work with mouse drags too.
 - **Touch.** Once a touch press becomes a drag, the manager keeps the browser from panning (a
   non-passive `touchmove` listener during the press) and from opening a long-press context menu, so
   the drag is not cancelled. Without a delay, a swipe that starts on a draggable therefore drags

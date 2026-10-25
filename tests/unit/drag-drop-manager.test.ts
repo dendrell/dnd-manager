@@ -416,6 +416,33 @@ describe('DragDropManager', () => {
     manager.destroy()
   })
 
+  test('with focusOnPress, lets the press through and cancels selection and native drags instead', () => {
+    const { container, source } = setupDom()
+    new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', focusOnPress: true },
+      {
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+    const cancelable = (type: string): Event => {
+      const event = new Event(type, { bubbles: true, cancelable: true })
+      source.dispatchEvent(event)
+      return event
+    }
+
+    const press = new MouseEvent('pointerdown', { bubbles: true, cancelable: true })
+    source.dispatchEvent(press)
+    expect(press.defaultPrevented).toBe(false)
+    expect(cancelable('selectstart').defaultPrevented).toBe(true)
+    expect(cancelable('dragstart').defaultPrevented).toBe(true)
+
+    source.dispatchEvent(pointerEvent('pointerup', 0, 0))
+    expect(cancelable('selectstart').defaultPrevented).toBe(false)
+    expect(cancelable('dragstart').defaultPrevented).toBe(false)
+  })
+
   test('starts dragging after threshold and calls onDragStart', () => {
     const { container, source } = setupDom()
     const onDragStart = vi.fn()

@@ -136,6 +136,16 @@ export type DragDropConfig = {
    * @default false
    */
   keyboard?: boolean
+
+  /**
+   * Let a press focus the draggable, as a click would. By default the manager cancels the
+   * `pointerdown`, which keeps the browser from selecting text or dragging an image natively, but
+   * also from moving focus. With `true` it cancels `selectstart` and `dragstart` during the press
+   * instead: the source is focused (no focus ring for a mouse, per `:focus-visible`), so focus
+   * styles, keyboard follow-ups and a virtual list that keeps its focused row rendered all work.
+   * @default false
+   */
+  focusOnPress?: boolean
 }
 
 export type PointerPosition = {
@@ -269,6 +279,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     mouseOut: (e: MouseEvent) => void
     touchMove: (e: TouchEvent) => void
     contextMenu: (e: MouseEvent) => void
+    preventDefault: (e: Event) => void
     pickUpKey: (e: KeyboardEvent) => void
     keyboardDragKey: (e: KeyboardEvent) => void
     keyUp: (e: KeyboardEvent) => void
@@ -309,6 +320,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       droppableKind: config.droppableKind,
       dropScope: config.dropScope ?? 'document',
       keyboard: config.keyboard ?? false,
+      focusOnPress: config.focusOnPress ?? false,
     }
     this.draggableKinds = this.normalizeKindList(this.config.draggableKind)
     this.droppableKinds = this.normalizeKindList(this.config.droppableKind)
@@ -325,6 +337,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       mouseOut: this.handleMouseOut.bind(this),
       touchMove: this.handleTouchMove.bind(this),
       contextMenu: this.handleContextMenu.bind(this),
+      preventDefault: (e: Event) => e.preventDefault(),
       pickUpKey: this.handlePickUpKey.bind(this),
       keyboardDragKey: this.handleKeyboardDragKey.bind(this),
       keyUp: this.handleKeyUp.bind(this),
@@ -387,8 +400,11 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
     claimedPresses.add(e)
 
-    // Prevent text selection during potential drag
-    e.preventDefault()
+    // Prevent text selection and native image/link drags during potential drag: by cancelling
+    // the press (no focus either), or, with focusOnPress, what the press would start.
+    if (!this.config.focusOnPress) e.preventDefault()
+    window.addEventListener('selectstart', this.boundHandlers.preventDefault, true)
+    window.addEventListener('dragstart', this.boundHandlers.preventDefault, true)
 
     // Store start position and element info
     this.state.startPosition = { x: e.clientX, y: e.clientY }
@@ -748,6 +764,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     window.removeEventListener('pointermove', this.boundHandlers.pointerMove)
     window.removeEventListener('touchmove', this.boundHandlers.touchMove)
     window.removeEventListener('contextmenu', this.boundHandlers.contextMenu)
+    window.removeEventListener('selectstart', this.boundHandlers.preventDefault, true)
+    window.removeEventListener('dragstart', this.boundHandlers.preventDefault, true)
     if (this.delayTimer !== null) {
       clearTimeout(this.delayTimer)
       this.delayTimer = null

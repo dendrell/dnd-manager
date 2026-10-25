@@ -54,6 +54,7 @@ type DragDropConfig = {
   cancelOnPointerLeave?: boolean // Default: true. Cancel drag when pointer leaves window.
   dropScope?: 'document' | 'container' // Default: 'document'. Where droppables are looked for.
   keyboard?: boolean // Default: false. Keyboard pick-and-place (see "Keyboard").
+  focusOnPress?: boolean // Default: false. Let a press focus the draggable; cancel selectstart/dragstart instead of pointerdown.
 }
 ```
 
@@ -164,6 +165,9 @@ Style drag/hover feedback using `[data-dragging="true"]`, `[data-hovered="true"]
    - If `data-empty` is present → stop (not draggable).
    - `canDrag(element, position)` → if `false`, stop.
    - `getItemData(element, position)` resolves item data.
+   - The press is claimed: `pointerdown` is cancelled (no text selection, native drag or focus), or,
+     with `focusOnPress`, `selectstart` and `dragstart` are cancelled while it is held and the
+     draggable gets focus.
 2. **Pointer moves past `dragThreshold`** (or, with a `dragDelay` for this pointer type, the press
    is held that long without moving past `dragDelayTolerance`; moving further first releases the
    press to the browser) → drag starts:
