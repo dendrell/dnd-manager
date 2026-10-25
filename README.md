@@ -17,6 +17,7 @@ without opinionated component patterns.
 - [React](#react)
 - [Multiple managers](#multiple-managers)
 - [Dynamic drag ability](#dynamic-drag-ability)
+- [Keyboard](#keyboard)
 - [API overview](#api-overview)
 
 ---
@@ -247,6 +248,44 @@ need to be recreated when state changes.
 
 ---
 
+## Keyboard
+
+`keyboard: true` adds pick-and-place for keyboard users. Draggables must be focusable (a `<button>`,
+or `tabindex="0"`).
+
+| Key             | Effect                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------- |
+| Space / Enter   | On a focused draggable: pick it up. During the drag: drop on the target.               |
+| Arrow keys      | Move the target to the nearest droppable in that direction, scrolled into view.        |
+| Escape          | Cancel (also with `cancelOnEscape: false`; the key goes no further, e.g. to a dialog). |
+| Tab, focus loss | Cancel.                                                                                |
+
+The same callbacks and attributes apply: `onDragStart`, `data-dragging` on the source,
+`data-hovered` / `data-drop-invalid` on the target, `onDragMove(targetCenter, target)` per move,
+`onDrop` and `onDragEnd`. A drop on a target `canDrop` rejects is ignored (the drag goes on). Focus
+stays on the source throughout; after a drop that moves the item, focus its new element in
+`onDragEnd`. `getState().input` tells a `'keyboard'` drag from a `'pointer'` one.
+
+Screen readers need words: announce from the callbacks into a live region, and describe the keys.
+
+```typescript
+const live = document.querySelector('#dnd-status')! // <div id="dnd-status" aria-live="assertive">
+
+new DragDropManager(
+  grid,
+  { draggableKind: 'slot', droppableKind: 'slot', keyboard: true },
+  {
+    getItemPosition,
+    getItemData,
+    onDragStart: (_el, _pos, item) => (live.textContent = `Picked up ${item.name}.`),
+    onDragMove: (_pos, target) => (live.textContent = target?.getAttribute('aria-label') ?? ''),
+    onDragEnd: (result) => (live.textContent = result ? 'Dropped.' : 'Cancelled.'),
+  },
+)
+```
+
+---
+
 ## API overview
 
 ### Callbacks
@@ -277,6 +316,7 @@ need to be recreated when state changes.
 | `cancelOnEscape`                  | Cancel drag on Escape (default true).                                                                    |
 | `cancelOnPointerLeave`            | Cancel when pointer leaves window (default true).                                                        |
 | `dropScope`                       | `'document'` (default): drop on matching droppables anywhere; `'container'`: only inside this container. |
+| `keyboard`                        | Keyboard pick-and-place (default false); see [Keyboard](#keyboard).                                      |
 
 ### Conventions
 

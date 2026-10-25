@@ -53,6 +53,7 @@ type DragDropConfig = {
   cancelOnEscape?: boolean // Default: true. Cancel drag on Escape key.
   cancelOnPointerLeave?: boolean // Default: true. Cancel drag when pointer leaves window.
   dropScope?: 'document' | 'container' // Default: 'document'. Where droppables are looked for.
+  keyboard?: boolean // Default: false. Keyboard pick-and-place (see "Keyboard").
 }
 ```
 
@@ -411,6 +412,25 @@ onDragEnd: (result) => {
 ```
 
 `result` is `DragEndResult<TItem, TPosition>` on valid drop, `null` on cancel/invalid.
+
+### Keyboard (pick-and-place)
+
+With `keyboard: true` (draggables must be focusable: `<button>` or `tabindex="0"`):
+
+- **Space / Enter** on a focused draggable picks it up: `onDragStart`, `data-dragging`; the first
+  target is the source itself when it is a droppable.
+- **Arrow keys** move the target to the nearest droppable whose center lies in that direction
+  (distance across the axis counts double), within `dropScope`, scrolled into view
+  (`block: 'nearest'`). `onDragMove(targetCenter, acceptedTarget)` fires per move; `data-hovered` /
+  `data-drop-invalid` mark the target.
+- **Space / Enter** drops: `onDrop`, then `onDragEnd(result)`. Ignored on a target `canDrop`
+  rejects.
+- **Escape** cancels (regardless of `cancelOnEscape`; propagation stops). **Tab** or focus leaving
+  the source cancels. Pointer releases do not drop a keyboard drag.
+- The keydown and the following keyup of Space/Enter are prevented, so a draggable `<button>` is not
+  clicked. Focus stays on the source; move it to the item's new element in `onDragEnd`.
+- `getState().input` is `'keyboard'` or `'pointer'`. Announce progress from the callbacks into an
+  `aria-live` region.
 
 ---
 

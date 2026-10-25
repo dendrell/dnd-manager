@@ -125,6 +125,17 @@ export type DragDropConfig = {
    * @default 'document'
    */
   dropScope?: 'document' | 'container'
+
+  /**
+   * Keyboard pick-and-place. Space or Enter on a focused draggable (make it focusable: a
+   * `<button>`, or `tabindex="0"`) picks it up; the arrow keys move the target to the nearest
+   * droppable in that direction (scrolled into view); Space or Enter drops there (ignored on a
+   * target `canDrop` rejects); Escape cancels (whatever `cancelOnEscape` says), and so do Tab and
+   * focus leaving the source. The callbacks fire as for a pointer drag, `onDragMove` with the
+   * target's center. Announce the moves from them in an `aria-live` region.
+   * @default false
+   */
+  keyboard?: boolean
 }
 
 export type PointerPosition = {
@@ -170,6 +181,8 @@ type DragState<TItem, TPosition> = {
   sourcePosition: TPosition | null
   sourceItem: TItem | null
   activePointerId: number | null
+  /** What drives the current press or drag. */
+  input: 'pointer' | 'keyboard' | null
   isDragging: boolean
   lastHoveredElement: HTMLElement | null
   /** The droppable under the pointer that `canDrop` rejected (marked `data-drop-invalid`). */
@@ -197,12 +210,30 @@ function idleState<TItem, TPosition>(): DragState<TItem, TPosition> {
     sourcePosition: null,
     sourceItem: null,
     activePointerId: null,
+    input: null,
     isDragging: false,
     lastHoveredElement: null,
     lastInvalidElement: null,
     lastDropResult: null,
   }
 }
+
+type KindMatch = { element: HTMLElement; kind: string }
+
+const centerOf = (rect: DOMRect): PointerPosition => ({
+  x: rect.left + rect.width / 2,
+  y: rect.top + rect.height / 2,
+})
+
+const ARROWS: Record<string, { axis: 'x' | 'y'; sign: 1 | -1 }> = {
+  ArrowLeft: { axis: 'x', sign: -1 },
+  ArrowRight: { axis: 'x', sign: 1 },
+  ArrowUp: { axis: 'y', sign: -1 },
+  ArrowDown: { axis: 'y', sign: 1 },
+}
+
+const isActionKey = (e: KeyboardEvent): boolean =>
+  (e.key === ' ' || e.key === 'Enter') && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey
 
 export class DragDropManager<TItem = unknown, TPosition = unknown> {
   private container: HTMLElement
@@ -222,6 +253,13 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   /** The pending `dragDelay` of the current press. */
   private delayTimer: ReturnType<typeof setTimeout> | null = null
   private activePointerType = ''
+  /** The droppable a keyboard drag points at. */
+  private keyboardTarget: KindMatch | null = null
+  /**
+   * The key that picked up or dropped: its `keyup` would activate a focused button (Space clicks
+   * on keyup), so it is swallowed.
+   */
+  private swallowKeyUp: string | null = null
   private boundHandlers: {
     pointerDown: (e: PointerEvent) => void
     pointerMove: (e: PointerEvent) => void
@@ -231,6 +269,10 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     mouseOut: (e: MouseEvent) => void
     touchMove: (e: TouchEvent) => void
     contextMenu: (e: MouseEvent) => void
+    pickUpKey: (e: KeyboardEvent) => void
+    keyboardDragKey: (e: KeyboardEvent) => void
+    keyUp: (e: KeyboardEvent) => void
+    focusOut: (e: FocusEvent) => void
   }
 
   constructor(
@@ -266,6 +308,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       draggableKind: config.draggableKind,
       droppableKind: config.droppableKind,
       dropScope: config.dropScope ?? 'document',
+      keyboard: config.keyboard ?? false,
     }
     this.draggableKinds = this.normalizeKindList(this.config.draggableKind)
     this.droppableKinds = this.normalizeKindList(this.config.droppableKind)
@@ -282,6 +325,10 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       mouseOut: this.handleMouseOut.bind(this),
       touchMove: this.handleTouchMove.bind(this),
       contextMenu: this.handleContextMenu.bind(this),
+      pickUpKey: this.handlePickUpKey.bind(this),
+      keyboardDragKey: this.handleKeyboardDragKey.bind(this),
+      keyUp: this.handleKeyUp.bind(this),
+      focusOut: this.handleFocusOut.bind(this),
     }
 
     this.attachListeners()
@@ -295,6 +342,33 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     window.addEventListener('pointercancel', this.boundHandlers.pointerCancel)
     window.addEventListener('keydown', this.boundHandlers.keyDown)
     window.addEventListener('mouseout', this.boundHandlers.mouseOut)
+    if (this.config.keyboard) {
+      this.container.addEventListener('keydown', this.boundHandlers.pickUpKey)
+      // Capture phase: the drag's keys come first, before a roving-focus grid or a dialog.
+      window.addEventListener('keydown', this.boundHandlers.keyboardDragKey, true)
+      window.addEventListener('keyup', this.boundHandlers.keyUp, true)
+      window.addEventListener('focusout', this.boundHandlers.focusOut, true)
+    }
+  }
+
+  /**
+   * The source position and item of the draggable `match`, if it may be dragged: it has a
+   * position, is not `data-empty`, `canDrag` allows it and it has item data.
+   */
+  private resolveSource(match: KindMatch): { position: TPosition; item: TItem } | null {
+    const position = this.callbacks.getItemPosition(match.element, match.kind)
+    if (!position) return null
+
+    // Check if element is empty (convention: data-empty="any-value")
+    if (match.element.dataset.empty !== undefined) return null
+
+    // Check canDrag callback
+    if (this.callbacks.canDrag && !this.callbacks.canDrag(match.element, position)) return null
+
+    // Get item data
+    const item = this.callbacks.getItemData?.(match.element, position) ?? null
+    if (!item) return null
+    return { position, item }
   }
 
   private handlePointerDown(e: PointerEvent): void {
@@ -305,28 +379,11 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     if (e.button !== 0 || (e.pointerType === 'touch' && !e.isPrimary)) return
     if (claimedPresses.has(e)) return
 
-    const target = e.target as HTMLElement
-    const draggableMatch = this.findElementByKinds(target, this.draggableKinds)
-
+    const draggableMatch = this.findElementByKinds(e.target as HTMLElement, this.draggableKinds)
     if (!draggableMatch) return
-
-    const { element: draggableElement, kind: sourceKind } = draggableMatch
-
-    const position = this.callbacks.getItemPosition(draggableElement, sourceKind)
-    if (!position) return
-
-    // Check if element is empty (convention: data-empty="any-value")
-    const isEmpty = draggableElement.dataset.empty !== undefined
-    if (isEmpty) return
-
-    // Check canDrag callback
-    if (this.callbacks.canDrag && !this.callbacks.canDrag(draggableElement, position)) {
-      return
-    }
-
-    // Get item data
-    const item = this.callbacks.getItemData?.(draggableElement, position) ?? null
-    if (!item) return
+    const source = this.resolveSource(draggableMatch)
+    if (!source) return
+    const draggableElement = draggableMatch.element
 
     claimedPresses.add(e)
 
@@ -336,8 +393,9 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // Store start position and element info
     this.state.startPosition = { x: e.clientX, y: e.clientY }
     this.state.sourceElement = draggableElement
-    this.state.sourcePosition = position
-    this.state.sourceItem = item
+    this.state.sourcePosition = source.position
+    this.state.sourceItem = source.item
+    this.state.input = 'pointer'
     this.state.activePointerId = this.getPointerId(e)
     this.activePointerType = e.pointerType ?? ''
     this.lastPointerPos = this.state.startPosition
@@ -403,7 +461,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
   private startDrag(): void {
     this.state.isDragging = true
-    this.suppressClickOnRelease = true
+    // Only a pointer release is followed by a click.
+    this.suppressClickOnRelease = this.state.input === 'pointer'
 
     if (this.state.sourceElement && this.state.sourcePosition && this.state.sourceItem) {
       // Set data-dragging attribute on source
@@ -470,6 +529,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   }
 
   private handlePointerUp(e: PointerEvent): void {
+    // A stray release does not drop a keyboard drag where the mouse happens to be.
+    if (this.state.input === 'keyboard') return
     if (!this.isActivePointer(e)) return
 
     // Also after a drag that Escape cancelled while the pointer stayed down.
@@ -524,6 +585,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   }
 
   private handlePointerCancel(): void {
+    if (this.state.input === 'keyboard') return
     // No click follows a cancelled pointer.
     this.suppressClickOnRelease = false
     this.cleanup()
@@ -541,7 +603,123 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // A release outside the window clicks nothing in the page.
     this.suppressClickOnRelease = false
     if (!this.config.cancelOnPointerLeave) return
-    if (!this.state.startPosition) return
+    if (this.state.input !== 'pointer') return
+    this.cleanup()
+  }
+
+  /** Space or Enter on a focused draggable picks it up (`keyboard: true`). */
+  private handlePickUpKey(e: KeyboardEvent): void {
+    if (this.state.startPosition || e.repeat || !isActionKey(e) || claimedPresses.has(e)) return
+    const match = this.findElementByKinds(e.target as HTMLElement, this.draggableKinds)
+    if (!match) return
+    const source = this.resolveSource(match)
+    if (!source) return
+
+    claimedPresses.add(e)
+    // No button activation, no page scroll on Space.
+    e.preventDefault()
+    this.swallowKeyUp = e.key
+
+    this.state.startPosition = centerOf(match.element.getBoundingClientRect())
+    this.state.sourceElement = match.element
+    this.state.sourcePosition = source.position
+    this.state.sourceItem = source.item
+    this.state.input = 'keyboard'
+    this.startDrag()
+    // The first target is the source itself when it is a droppable, as a pointer drag hovers it.
+    this.pointKeyboardAt(this.findDroppable(match.element))
+  }
+
+  /** The keys of a keyboard drag, ahead of anything else on the page. */
+  private handleKeyboardDragKey(e: KeyboardEvent): void {
+    if (this.state.input !== 'keyboard') {
+      // A new key press: the keyup of an earlier pick-up or drop is no longer coming.
+      if (!e.repeat) this.swallowKeyUp = null
+      return
+    }
+    const arrow = ARROWS[e.key]
+    if (arrow) {
+      this.pointKeyboardAt(this.nearestDroppable(arrow.axis, arrow.sign) ?? this.keyboardTarget)
+    } else if (isActionKey(e)) {
+      // Swallowed whether or not it drops: its keyup must not click the focused source either.
+      this.swallowKeyUp = e.key
+      if (!e.repeat) this.dropWithKeyboard()
+    } else if (e.key === 'Escape') {
+      this.cleanup()
+    } else {
+      // Tab moves focus away (focusout cancels); other keys are the page's.
+      return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  private handleKeyUp(e: KeyboardEvent): void {
+    if (this.swallowKeyUp === null || e.key !== this.swallowKeyUp) return
+    this.swallowKeyUp = null
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
+  /** Focus leaving the source (Tab, a click elsewhere) cancels a keyboard drag. */
+  private handleFocusOut(e: FocusEvent): void {
+    const source = this.state.sourceElement
+    if (this.state.input !== 'keyboard' || !source) return
+    if (!source.contains(e.target as Node)) return
+    if (source.contains(e.relatedTarget as Node | null)) return
+    this.cleanup()
+  }
+
+  /** Makes `match` the keyboard drag's target: marked, scrolled into view, sent to `onDragMove`. */
+  private pointKeyboardAt(match: KindMatch | null): void {
+    this.keyboardTarget = match
+    this.markTarget(match)
+    if (!match) return
+    match.element.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    this.callbacks.onDragMove?.(
+      centerOf(match.element.getBoundingClientRect()),
+      this.state.lastHoveredElement,
+    )
+  }
+
+  /**
+   * The droppable nearest the current target (or the source) in a direction: its center lies that
+   * way, and it is closest along the axis, with distance across the axis counting double, so the
+   * next cell in the same row or column wins over a diagonal one.
+   */
+  private nearestDroppable(axis: 'x' | 'y', sign: 1 | -1): KindMatch | null {
+    const from = this.keyboardTarget?.element ?? this.state.sourceElement
+    if (!from) return null
+    const origin = centerOf(from.getBoundingClientRect())
+    const root = this.config.dropScope === 'container' ? this.container : document
+    let best: KindMatch | null = null
+    let bestScore = Infinity
+    for (const element of root.querySelectorAll<HTMLElement>('[data-kind]')) {
+      const kind = element.dataset.kind
+      if (!kind || element === from || !this.droppableKinds.includes(kind)) continue
+      const rect = element.getBoundingClientRect()
+      if (rect.width === 0 && rect.height === 0) continue
+      const center = centerOf(rect)
+      const along = (axis === 'x' ? center.x - origin.x : center.y - origin.y) * sign
+      const across = Math.abs(axis === 'x' ? center.y - origin.y : center.x - origin.x)
+      if (along < 1) continue
+      const score = along + across * 2
+      if (score < bestScore) {
+        best = { element, kind }
+        bestScore = score
+      }
+    }
+    return best
+  }
+
+  /** Drops a keyboard drag on its target, unless there is none or `canDrop` rejects it. */
+  private dropWithKeyboard(): void {
+    const target = this.keyboardTarget
+    const targetPosition = target && this.acceptedPosition(target)
+    const { sourcePosition, sourceItem } = this.state
+    if (!targetPosition || sourcePosition === null || sourceItem === null) return
+    this.state.lastDropResult = { sourcePosition, targetPosition, sourceItem }
+    this.callbacks.onDrop?.(sourcePosition, targetPosition, sourceItem)
     this.cleanup()
   }
 
@@ -613,6 +791,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // Reset state
     this.state = idleState()
     this.lastPointerPos = null
+    this.keyboardTarget = null
   }
 
   private getPointerId(e: PointerEvent): number | null {
@@ -732,5 +911,11 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     window.removeEventListener('pointercancel', this.boundHandlers.pointerCancel)
     window.removeEventListener('keydown', this.boundHandlers.keyDown)
     window.removeEventListener('mouseout', this.boundHandlers.mouseOut)
+    if (this.config.keyboard) {
+      this.container.removeEventListener('keydown', this.boundHandlers.pickUpKey)
+      window.removeEventListener('keydown', this.boundHandlers.keyboardDragKey, true)
+      window.removeEventListener('keyup', this.boundHandlers.keyUp, true)
+      window.removeEventListener('focusout', this.boundHandlers.focusOut, true)
+    }
   }
 }

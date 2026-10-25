@@ -608,6 +608,164 @@ describe('DragDropManager', () => {
     })
   })
 
+  describe('keyboard', () => {
+    /** A 2×2 grid of 80px buttons, 100px apart: a b / c d. jsdom has no layout, so rects are stubbed. */
+    function setupGrid(): Record<'grid' | 'a' | 'b' | 'c' | 'd' | 'elsewhere', HTMLElement> {
+      document.body.innerHTML = `
+        <div id="grid">
+          ${['a', 'b', 'c', 'd'].map((id) => `<button id="${id}" data-kind="item" data-id="${id}"></button>`).join('')}
+        </div>
+        <button id="elsewhere"></button>
+      `
+      const byId = (id: string): HTMLElement => document.getElementById(id)!
+      const corners: Record<string, [number, number]> = {
+        a: [0, 0],
+        b: [100, 0],
+        c: [0, 100],
+        d: [100, 100],
+      }
+      for (const [id, [left, top]] of Object.entries(corners)) {
+        const rect = { left, top, width: 80, height: 80, right: left + 80, bottom: top + 80 }
+        vi.spyOn(byId(id), 'getBoundingClientRect').mockReturnValue({
+          ...rect,
+          x: left,
+          y: top,
+          toJSON: () => rect,
+        })
+      }
+      return {
+        grid: byId('grid'),
+        a: byId('a'),
+        b: byId('b'),
+        c: byId('c'),
+        d: byId('d'),
+        elsewhere: byId('elsewhere'),
+      }
+    }
+
+    const press = (target: EventTarget, key: string, type = 'keydown'): KeyboardEvent => {
+      const event = new KeyboardEvent(type, { key, bubbles: true, cancelable: true })
+      target.dispatchEvent(event)
+      return event
+    }
+
+    const createManager = (
+      grid: HTMLElement,
+      callbacks: Partial<ConstructorParameters<typeof BaseDragDropManager<Item, string>>[2]> = {},
+      keyboard = true,
+    ) =>
+      new DragDropManager<Item, string>(
+        grid,
+        { draggableKind: 'item', droppableKind: 'item', keyboard },
+        {
+          getItemPosition: (element) => element.dataset.id ?? null,
+          getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+          ...callbacks,
+        },
+      )
+
+    test('is off unless enabled', () => {
+      const { grid, a } = setupGrid()
+      const manager = createManager(grid, {}, false)
+
+      const space = press(a, ' ')
+      expect(manager.isDragging()).toBe(false)
+      expect(space.defaultPrevented).toBe(false)
+    })
+
+    test('picks up with Space, moves with the arrows, drops with Enter', () => {
+      const { grid, a, b, c, d } = setupGrid()
+      const onDragStart = vi.fn()
+      const onDragMove = vi.fn()
+      const onDrop = vi.fn()
+      const onDragEnd = vi.fn()
+      const manager = createManager(grid, { onDragStart, onDragMove, onDrop, onDragEnd })
+
+      const space = press(a, ' ')
+      expect(space.defaultPrevented).toBe(true)
+      expect(press(a, ' ', 'keyup').defaultPrevented).toBe(true)
+      expect(manager.getState().input).toBe('keyboard')
+      expect(onDragStart).toHaveBeenCalledWith(a, 'a', { id: 'a' })
+      expect(a.getAttribute('data-dragging')).toBe('true')
+      expect(a.getAttribute('data-hovered')).toBe('true')
+
+      expect(press(a, 'ArrowRight').defaultPrevented).toBe(true)
+      expect(b.getAttribute('data-hovered')).toBe('true')
+      expect(a.hasAttribute('data-hovered')).toBe(false)
+      expect(onDragMove).toHaveBeenLastCalledWith({ x: 140, y: 40 }, b)
+
+      press(a, 'ArrowDown')
+      expect(d.getAttribute('data-hovered')).toBe('true')
+      press(a, 'ArrowLeft')
+      expect(c.getAttribute('data-hovered')).toBe('true')
+      press(a, 'ArrowUp')
+      press(a, 'ArrowRight')
+      // Nothing further right: the target stays.
+      press(a, 'ArrowRight')
+      expect(b.getAttribute('data-hovered')).toBe('true')
+
+      press(a, 'Enter')
+      expect(onDrop).toHaveBeenCalledWith('a', 'b', { id: 'a' })
+      expect(onDragEnd).toHaveBeenCalledWith({
+        sourcePosition: 'a',
+        targetPosition: 'b',
+        sourceItem: { id: 'a' },
+      })
+      expect(manager.isDragging()).toBe(false)
+      expect(b.hasAttribute('data-hovered')).toBe(false)
+      expect(press(a, 'Enter', 'keyup').defaultPrevented).toBe(true)
+      // Only that keyup.
+      expect(press(a, 'Enter', 'keyup').defaultPrevented).toBe(false)
+    })
+
+    test('ignores a drop canDrop rejects, and Escape cancels', () => {
+      const { grid, a, b } = setupGrid()
+      const onDrop = vi.fn()
+      const onDragEnd = vi.fn()
+      const manager = createManager(grid, {
+        canDrop: (_from, to) => to !== 'b',
+        onDrop,
+        onDragEnd,
+      })
+      const outerEscape = vi.fn()
+      const onOuterKey = (event: KeyboardEvent): void => {
+        if (event.key === 'Escape') outerEscape()
+      }
+      window.addEventListener('keydown', onOuterKey)
+
+      press(a, 'Enter')
+      press(a, 'ArrowRight')
+      expect(b.getAttribute('data-drop-invalid')).toBe('true')
+      press(a, 'Enter')
+      expect(onDrop).not.toHaveBeenCalled()
+      expect(manager.isDragging()).toBe(true)
+
+      press(a, 'Escape')
+      expect(onDragEnd).toHaveBeenCalledWith(null)
+      expect(manager.isDragging()).toBe(false)
+      // The drag's keys stop there: a dialog around the grid does not close on that Escape.
+      expect(outerEscape).not.toHaveBeenCalled()
+      window.removeEventListener('keydown', onOuterKey)
+    })
+
+    test('a pointer release does not drop it, and focus leaving the source cancels it', () => {
+      const { grid, a, elsewhere } = setupGrid()
+      mockElementFromPoint(() => document.getElementById('d'))
+      const onDrop = vi.fn()
+      const onDragEnd = vi.fn()
+      const manager = createManager(grid, { onDrop, onDragEnd })
+
+      press(a, ' ')
+      window.dispatchEvent(pointerEvent('pointerup', 150, 150))
+      expect(onDrop).not.toHaveBeenCalled()
+      expect(manager.isDragging()).toBe(true)
+
+      a.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: elsewhere }))
+      expect(onDragEnd).toHaveBeenCalledWith(null)
+      expect(manager.isDragging()).toBe(false)
+    })
+  })
+
   test('treats short movement as click and calls onClick', () => {
     const { container, source } = setupDom()
     const onClick = vi.fn()
