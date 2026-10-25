@@ -114,10 +114,51 @@ describe('DragDropManager', () => {
       { getItemPosition: () => 1 },
     )
 
-    expect(addSpy).toHaveBeenCalledTimes(4)
+    expect(addSpy).toHaveBeenCalledTimes(3)
     expect(manager.isDragging()).toBe(false)
     manager.destroy()
-    expect(removeSpy).toHaveBeenCalledTimes(4)
+    expect(removeSpy).toHaveBeenCalledTimes(3)
+  })
+
+  test('follows the pointer outside the container, and only while a press is held', () => {
+    const { container, source, target } = setupDom()
+    const outside = document.body.appendChild(document.createElement('div'))
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb): number => {
+      frames.push(cb)
+      return frames.length
+    })
+    mockElementFromPoint(() => target)
+    const onDragStart = vi.fn()
+    const onDragMove = vi.fn()
+    new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', dragThreshold: 5 },
+      {
+        onDragStart,
+        onDragMove,
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    // Moves before any press do not matter.
+    outside.dispatchEvent(pointerEvent('pointermove', 400, 400))
+    expect(frames).toHaveLength(0)
+
+    // The source leaves the DOM mid-press (a virtualized row unmounting): pointer capture ends and
+    // the moves arrive on whatever is under the pointer.
+    source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    source.remove()
+    outside.dispatchEvent(pointerEvent('pointermove', 400, 400))
+    expect(onDragStart).toHaveBeenCalledOnce()
+    outside.dispatchEvent(pointerEvent('pointermove', 410, 400))
+    frames.shift()?.(0)
+    expect(onDragMove).toHaveBeenCalledWith({ x: 410, y: 400 }, target)
+
+    outside.dispatchEvent(pointerEvent('pointerup', 410, 400))
+    outside.dispatchEvent(pointerEvent('pointermove', 420, 400))
+    expect(frames).toHaveLength(0)
   })
 
   test('supports container refs with current element', () => {

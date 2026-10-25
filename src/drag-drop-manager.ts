@@ -222,7 +222,6 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
   private attachListeners(): void {
     this.container.addEventListener('pointerdown', this.boundHandlers.pointerDown)
-    this.container.addEventListener('pointermove', this.boundHandlers.pointerMove)
     this.container.addEventListener('pointerup', this.boundHandlers.pointerUp)
     this.container.addEventListener('pointercancel', this.boundHandlers.pointerCancel)
     window.addEventListener('pointerup', this.boundHandlers.pointerUp)
@@ -282,6 +281,11 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
         // Ignore unsupported/inactive-pointer capture errors.
       }
     }
+
+    // Follow the pointer anywhere in the page: capture ends when the source element leaves the DOM
+    // (a virtualized list unmounting it, a framework moving it), and moves outside the container
+    // would otherwise go unseen.
+    window.addEventListener('pointermove', this.boundHandlers.pointerMove)
   }
 
   private handlePointerMove(e: PointerEvent): void {
@@ -468,6 +472,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   }
 
   private cleanup(): void {
+    window.removeEventListener('pointermove', this.boundHandlers.pointerMove)
+
     // Release pointer capture if we own it.
     if (
       this.state.sourceElement &&
@@ -582,7 +588,6 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     this.suppressClickOnRelease = false
     this.releaseClickBlocker?.()
     this.container.removeEventListener('pointerdown', this.boundHandlers.pointerDown)
-    this.container.removeEventListener('pointermove', this.boundHandlers.pointerMove)
     this.container.removeEventListener('pointerup', this.boundHandlers.pointerUp)
     this.container.removeEventListener('pointercancel', this.boundHandlers.pointerCancel)
     window.removeEventListener('pointerup', this.boundHandlers.pointerUp)

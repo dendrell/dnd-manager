@@ -291,5 +291,9 @@ need to be recreated when state changes.
 - The native `click` the browser fires after the release that ends a drag (on the source element,
   which holds pointer capture) is swallowed, so a draggable `<button>` or link is not activated by a
   drop. A press that never became a drag clicks as usual.
+- While a press is held the manager follows `pointermove` on the whole window, so dragging out of
+  the container works even if the source element leaves the DOM mid-drag (a virtualized list
+  unmounting its row), which ends pointer capture. Re-render the source's state from your own data
+  (`onDragStart` / `onDragEnd`) if the row can come back as a new element.
 - React: create manager in `useEffect`, depend on grid state if `getItemData` uses it, and destroy
   on cleanup.

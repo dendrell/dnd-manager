@@ -405,6 +405,9 @@ onDragEnd: (result) => {
 - Uses `requestAnimationFrame` for 60fps drag updates.
 - Uses pointer events (works with touch, mouse, and pen).
 - Uses `setPointerCapture` / `releasePointerCapture` when available.
+- Listens to `pointermove` on the window while a press is held, so a drag keeps working outside the
+  container even after the source element leaves the DOM (a virtualized list unmounting the row, a
+  framework moving the node), which ends pointer capture.
 - Swallows the native `click` that follows the release ending a drag (also after Escape cancelled it
   while the pointer was down), so draggable buttons and links are not activated by a drop.
 - `data-dragging` and `data-hovered` attributes are always cleaned up automatically.
