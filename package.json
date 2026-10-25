@@ -5,11 +5,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/itsjavi/dnd-manager.git"
+    "url": "git+https://github.com/dendrell/dnd-manager.git"
   },
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "type": "module",
@@ -30,7 +31,8 @@
     "build:all": "pnpm build && pnpm build:demo",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
-    "prepublishOnly": "pnpm typecheck && pnpm build && publint && npm login",
+    "prepublishOnly": "pnpm typecheck && pnpm build && publint",
+    "release:version": "node scripts/release.ts",
     "test": "vitest --run",
     "test:coverage": "pnpm build && vitest --run --coverage",
     "test:e2e": "pnpm build && vitest --project e2e",

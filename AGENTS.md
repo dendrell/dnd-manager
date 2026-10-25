@@ -43,6 +43,20 @@ Quick guide for AI coding agents working in `dnd-manager`.
 - Coverage: `pnpm test:coverage`
 - Format: `pnpm format`
 - Check formatting: `pnpm format:check`
+- Release: `pnpm release:version <x.y.z> [--dry-run]`
+
+## Releases
+
+- Versions follow semver; commits follow Conventional Commits (`feat:`, `fix:`, `perf:`, `!` or a
+  `BREAKING CHANGE:` footer for breaking ones), which become the changelog.
+- `pnpm release:version <x.y.z>` (`scripts/release.ts`) runs the checks, sets `package.json`'s
+  version, prepends the release's `CHANGELOG.md` section from the commits since the last `v*` tag,
+  commits `chore(release): vX.Y.Z` and tags it. It pushes nothing; never bump the version or edit
+  `CHANGELOG.md` sections by hand.
+- Pushing the tag runs `.github/workflows/release.yml`: it publishes to npm through trusted
+  publishing (provenance unless the repository variable `NPM_PROVENANCE` is `false`) and creates the
+  GitHub release from the changelog section. Until `NPM_PUBLISH` is `true` it is a dry run.
+- Agents do not tag, push or publish unless the user asks.
 
 ## Coding Expectations
 
