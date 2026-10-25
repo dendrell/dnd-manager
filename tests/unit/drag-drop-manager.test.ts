@@ -114,10 +114,12 @@ describe('DragDropManager', () => {
       { getItemPosition: () => 1 },
     )
 
-    expect(addSpy).toHaveBeenCalledTimes(3)
+    expect(addSpy).toHaveBeenCalledTimes(4)
+    // The touch guard is in place before any touch starts (iOS Safari needs that).
+    expect(addSpy).toHaveBeenCalledWith('touchmove', expect.any(Function), { passive: false })
     expect(manager.isDragging()).toBe(false)
     manager.destroy()
-    expect(removeSpy).toHaveBeenCalledTimes(3)
+    expect(removeSpy).toHaveBeenCalledTimes(4)
   })
 
   test('follows the pointer outside the container, and only while a press is held', () => {
@@ -615,23 +617,48 @@ describe('DragDropManager', () => {
       createManager(container, { touch: 200 })
       const cancelable = (type: string): Event => new Event(type, { cancelable: true })
 
+      // A touch's events go to the element it started on.
+      const touchMove = (): Event => {
+        const event = new Event('touchmove', { bubbles: true, cancelable: true })
+        source.dispatchEvent(event)
+        return event
+      }
+
       source.dispatchEvent(touchEvent('pointerdown', 0, 0))
-      const earlyMove = cancelable('touchmove')
-      window.dispatchEvent(earlyMove)
-      expect(earlyMove.defaultPrevented).toBe(false)
+      expect(touchMove().defaultPrevented).toBe(false)
       const earlyMenu = cancelable('contextmenu')
       window.dispatchEvent(earlyMenu)
       expect(earlyMenu.defaultPrevented).toBe(true)
 
       vi.advanceTimersByTime(200)
-      const dragMove = cancelable('touchmove')
-      window.dispatchEvent(dragMove)
-      expect(dragMove.defaultPrevented).toBe(true)
+      expect(touchMove().defaultPrevented).toBe(true)
 
       source.dispatchEvent(touchEvent('pointerup', 0, 0))
-      const afterMove = cancelable('touchmove')
-      window.dispatchEvent(afterMove)
-      expect(afterMove.defaultPrevented).toBe(false)
+      expect(touchMove().defaultPrevented).toBe(false)
+    })
+
+    test('keeps preventing the pan, and ends the drag, when the source leaves the DOM mid-drag', () => {
+      const { container, source, target } = setupDom()
+      mockElementFromPoint(() => target)
+      const onDrop = vi.fn()
+      const manager = createManager(container, 0, { onDrop })
+      const touchMove = (): Event => {
+        const event = new Event('touchmove', { bubbles: true, cancelable: true })
+        source.dispatchEvent(event)
+        return event
+      }
+
+      source.dispatchEvent(touchEvent('pointerdown', 0, 0))
+      source.dispatchEvent(touchEvent('pointermove', 0, 20))
+      // A virtualized list unmounting the row: the touch's events still go to it, and reach no
+      // container or window any more.
+      source.remove()
+      expect(touchMove().defaultPrevented).toBe(true)
+
+      source.dispatchEvent(touchEvent('pointerup', 0, 20))
+      expect(manager.isDragging()).toBe(false)
+      expect(onDrop).toHaveBeenCalledWith('source', 'target', { id: 'source' })
+      expect(touchMove().defaultPrevented).toBe(false)
     })
   })
 

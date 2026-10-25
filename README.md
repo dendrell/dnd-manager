@@ -350,12 +350,16 @@ new DragDropManager(
   and `dragstart` while it is held instead: the draggable gets focus like a clicked button (no focus
   ring for a mouse, per `:focus-visible`), so focus styles, keyboard follow-ups and a virtual list
   that keeps its focused row rendered work with mouse drags too.
-- **Touch.** Once a touch press becomes a drag, the manager keeps the browser from panning (a
-  non-passive `touchmove` listener during the press) and from opening a long-press context menu, so
-  the drag is not cancelled. Without a delay, a swipe that starts on a draggable therefore drags
-  rather than scrolls. For lists that must also scroll by touch, use a long press:
-  `dragDelay: { touch: 250 }` — a quick swipe scrolls, holding still for 250ms picks the item up. On
-  iOS also add `-webkit-touch-callout: none; user-select: none` to draggables.
+- **Touch.** Once a touch press becomes a drag, the manager keeps the browser from panning and from
+  opening a long-press context menu, so the drag is not cancelled. It does so with a non-passive
+  `touchmove` listener on the container, in place before any touch starts (iOS Safari ignores one
+  added later), so touch scrolls that start inside the container wait for that small handler. A drag
+  also survives its source leaving the DOM mid-drag (a virtualized list unmounting the row), whose
+  touch and pointer events keep going to the detached element. Checked in Chromium and iOS Safari.
+  Without a delay, a swipe that starts on a draggable drags rather than scrolls. For lists that must
+  also scroll by touch, use a long press: `dragDelay: { touch: 250 }` — a quick swipe scrolls,
+  holding still for 250ms picks the item up. On iOS also add
+  `-webkit-touch-callout: none; user-select: none` to draggables.
 - Auto-scroll scrolls the closest scroll container under the pointer (`overflow: auto | scroll`)
   that can still scroll toward the edge the pointer is near, nested ones first, and otherwise the
   window. It keeps scrolling while the pointer rests in the edge zone, and re-checks the hovered

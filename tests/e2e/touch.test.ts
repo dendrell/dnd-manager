@@ -39,7 +39,7 @@ afterEach(() => {
   destroy = null
 })
 
-function renderList(config: Record<string, unknown>) {
+function renderList(config: Record<string, unknown>, { detach = false } = {}) {
   document.body.innerHTML = `
     <div id="list" style="width: 200px; height: 240px; overflow-y: auto">
       ${Array.from(
@@ -59,7 +59,11 @@ function renderList(config: Record<string, unknown>) {
     {
       getItemPosition: (el) => el.dataset.id ?? null,
       getItemData: (el) => el.dataset.id ?? null,
-      onDragStart: () => void log.started++,
+      onDragStart: (el) => {
+        log.started++
+        // A virtualized list unmounting the dragged row.
+        if (detach) el.remove()
+      },
       onDrop: (from, to) => void log.dropped.push(`${from}->${to}`),
     },
   )
@@ -72,6 +76,15 @@ function renderList(config: Record<string, unknown>) {
 
 test('a touch drag in a scrollable list is not cancelled by the browser panning', async () => {
   const { list, log } = renderList({})
+
+  await swipeUp(0)
+
+  expect(log).toEqual({ started: 1, dropped: ['3->1'], cancels: 0 })
+  expect(list.scrollTop).toBe(0)
+})
+
+test('a touch drag survives its source leaving the DOM', async () => {
+  const { list, log } = renderList({}, { detach: true })
 
   await swipeUp(0)
 

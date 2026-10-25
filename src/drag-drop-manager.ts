@@ -16,6 +16,9 @@ import { autoScrollStep } from './auto-scroll'
  */
 const claimedPresses = new WeakSet<Event>()
 
+/** The pointer events of a press that a detached source still receives (see handlePointerDown). */
+const SOURCE_POINTER_EVENTS = ['pointermove', 'pointerup', 'pointercancel'] as const
+
 export type DragDropConfig = {
   /**
    * Minimum distance in pixels the pointer must move before a drag operation starts.
@@ -278,6 +281,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     keyDown: (e: KeyboardEvent) => void
     mouseOut: (e: MouseEvent) => void
     touchMove: (e: TouchEvent) => void
+    detachedSourcePointer: (e: PointerEvent) => void
     contextMenu: (e: MouseEvent) => void
     preventDefault: (e: Event) => void
     pickUpKey: (e: KeyboardEvent) => void
@@ -336,6 +340,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       keyDown: this.handleKeyDown.bind(this),
       mouseOut: this.handleMouseOut.bind(this),
       touchMove: this.handleTouchMove.bind(this),
+      detachedSourcePointer: this.handleDetachedSourcePointer.bind(this),
       contextMenu: this.handleContextMenu.bind(this),
       preventDefault: (e: Event) => e.preventDefault(),
       pickUpKey: this.handlePickUpKey.bind(this),
@@ -355,6 +360,10 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     window.addEventListener('pointercancel', this.boundHandlers.pointerCancel)
     window.addEventListener('keydown', this.boundHandlers.keyDown)
     window.addEventListener('mouseout', this.boundHandlers.mouseOut)
+    // Non-passive and there from the start: iOS Safari only lets a touch sequence's `touchmove`
+    // be cancelled (handleTouchMove) when a non-passive listener was in place at `touchstart`.
+    // A listener added at the press is ignored there, so the browser pans and cancels the drag.
+    this.container.addEventListener('touchmove', this.boundHandlers.touchMove, { passive: false })
     if (this.config.keyboard) {
       this.container.addEventListener('keydown', this.boundHandlers.pickUpKey)
       // Capture phase: the drag's keys come first, before a roving-focus grid or a dialog.
@@ -432,8 +441,13 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // (a virtualized list unmounting it, a framework moving it), and moves outside the container
     // would otherwise go unseen.
     window.addEventListener('pointermove', this.boundHandlers.pointerMove)
-    // Non-passive, so a touch drag can keep the browser from panning (see handleTouchMove).
-    window.addEventListener('touchmove', this.boundHandlers.touchMove, { passive: false })
+    // A touch's events keep their first target: once the source leaves the DOM (a virtualized list
+    // unmounting the row), its touch and pointer events reach no container or window listener,
+    // only the detached source's own. Without these the drag would never end.
+    draggableElement.addEventListener('touchmove', this.boundHandlers.touchMove, { passive: false })
+    for (const type of SOURCE_POINTER_EVENTS) {
+      draggableElement.addEventListener(type, this.boundHandlers.detachedSourcePointer)
+    }
     window.addEventListener('contextmenu', this.boundHandlers.contextMenu)
 
     const delay = this.delayFor(this.activePointerType)
@@ -506,6 +520,17 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
    */
   private handleTouchMove(e: TouchEvent): void {
     if (this.state.isDragging && e.cancelable) e.preventDefault()
+  }
+
+  /**
+   * The press's pointer events, heard on the source itself. While it is in the DOM they also reach
+   * the window's listeners, which handle them; once it is detached only these hear them.
+   */
+  private handleDetachedSourcePointer(e: PointerEvent): void {
+    if (this.state.sourceElement?.isConnected !== false) return
+    if (e.type === 'pointermove') this.handlePointerMove(e)
+    else if (e.type === 'pointerup') this.handlePointerUp(e)
+    else this.handlePointerCancel()
   }
 
   /** A long press opens no context menu (Android, iOS) while it is a drag or about to be one. */
@@ -762,7 +787,10 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
   private cleanup(): void {
     window.removeEventListener('pointermove', this.boundHandlers.pointerMove)
-    window.removeEventListener('touchmove', this.boundHandlers.touchMove)
+    this.state.sourceElement?.removeEventListener('touchmove', this.boundHandlers.touchMove)
+    for (const type of SOURCE_POINTER_EVENTS) {
+      this.state.sourceElement?.removeEventListener(type, this.boundHandlers.detachedSourcePointer)
+    }
     window.removeEventListener('contextmenu', this.boundHandlers.contextMenu)
     window.removeEventListener('selectstart', this.boundHandlers.preventDefault, true)
     window.removeEventListener('dragstart', this.boundHandlers.preventDefault, true)
@@ -925,6 +953,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     this.container.removeEventListener('pointerdown', this.boundHandlers.pointerDown)
     this.container.removeEventListener('pointerup', this.boundHandlers.pointerUp)
     this.container.removeEventListener('pointercancel', this.boundHandlers.pointerCancel)
+    this.container.removeEventListener('touchmove', this.boundHandlers.touchMove)
     window.removeEventListener('pointerup', this.boundHandlers.pointerUp)
     window.removeEventListener('pointercancel', this.boundHandlers.pointerCancel)
     window.removeEventListener('keydown', this.boundHandlers.keyDown)

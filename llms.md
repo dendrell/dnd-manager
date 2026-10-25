@@ -449,9 +449,13 @@ With `keyboard: true` (draggables must be focusable: `<button>` or `tabindex="0"
 - Uses `requestAnimationFrame` for 60fps drag updates.
 - Uses pointer events (works with touch, mouse, and pen).
 - Touch: while a press is a drag, a non-passive `touchmove` listener prevents the browser's pan
-  (which would fire `pointercancel`) and `contextmenu` is prevented. Without `dragDelay`, swiping on
-  a draggable drags instead of scrolling; use `dragDelay: { touch: 250 }` for touch lists that must
-  scroll. On iOS add `-webkit-touch-callout: none; user-select: none` to draggables.
+  (which would fire `pointercancel`) and `contextmenu` is prevented. The listener sits on the
+  container from construction (iOS Safari only honours one present at `touchstart`), plus one on the
+  source during the press, which with the source's own pointer listeners keeps a drag going when the
+  source leaves the DOM mid-drag (a touch's events keep targeting the detached element). Without
+  `dragDelay`, swiping on a draggable drags instead of scrolling; use `dragDelay: { touch: 250 }`
+  for touch lists that must scroll. On iOS add `-webkit-touch-callout: none; user-select: none` to
+  draggables.
 - Uses `setPointerCapture` / `releasePointerCapture` when available.
 - Listens to `pointermove` on the window while a press is held, so a drag keeps working outside the
   container even after the source element leaves the DOM (a virtualized list unmounting the row, a
