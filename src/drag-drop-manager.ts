@@ -28,6 +28,22 @@ export type DragDropConfig = {
   dragThreshold?: number
 
   /**
+   * Milliseconds a press must be held, moving at most `dragDelayTolerance`, before it becomes a
+   * drag: a long press, so a touch list still scrolls under a swiping finger. A number applies to
+   * every pointer type; an object sets it per type (`{ touch: 250 }`: a mouse still drags at once).
+   * Moving further during the delay releases the press and leaves the gesture to the browser. Once
+   * the delay passes the drag starts at once, without waiting for a move.
+   * @default 0
+   */
+  dragDelay?: number | { mouse?: number; pen?: number; touch?: number }
+
+  /**
+   * Pixels a press may move during `dragDelay` before it is released.
+   * @default 5
+   */
+  dragDelayTolerance?: number
+
+  /**
    * Maximum distance in pixels between pointerdown and pointerup to treat as a click/tap.
    * Used to distinguish intentional clicks from cancelled drag attempts.
    * Only checked on `pointerup` if drag never started.
@@ -203,6 +219,9 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
    */
   private suppressClickOnRelease = false
   private releaseClickBlocker: (() => void) | null = null
+  /** The pending `dragDelay` of the current press. */
+  private delayTimer: ReturnType<typeof setTimeout> | null = null
+  private activePointerType = ''
   private boundHandlers: {
     pointerDown: (e: PointerEvent) => void
     pointerMove: (e: PointerEvent) => void
@@ -210,6 +229,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     pointerCancel: (e: PointerEvent) => void
     keyDown: (e: KeyboardEvent) => void
     mouseOut: (e: MouseEvent) => void
+    touchMove: (e: TouchEvent) => void
+    contextMenu: (e: MouseEvent) => void
   }
 
   constructor(
@@ -235,6 +256,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
     this.config = {
       dragThreshold: config.dragThreshold ?? 10,
+      dragDelay: config.dragDelay ?? 0,
+      dragDelayTolerance: config.dragDelayTolerance ?? 5,
       clickThreshold: config.clickThreshold ?? 10,
       scrollThreshold: config.scrollThreshold ?? 100,
       scrollSpeed: config.scrollSpeed ?? 10,
@@ -257,6 +280,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       pointerCancel: this.handlePointerCancel.bind(this),
       keyDown: this.handleKeyDown.bind(this),
       mouseOut: this.handleMouseOut.bind(this),
+      touchMove: this.handleTouchMove.bind(this),
+      contextMenu: this.handleContextMenu.bind(this),
     }
 
     this.attachListeners()
@@ -314,6 +339,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     this.state.sourcePosition = position
     this.state.sourceItem = item
     this.state.activePointerId = this.getPointerId(e)
+    this.activePointerType = e.pointerType ?? ''
+    this.lastPointerPos = this.state.startPosition
 
     // Capture pointer events outside container boundaries when supported.
     if (
@@ -331,6 +358,18 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // (a virtualized list unmounting it, a framework moving it), and moves outside the container
     // would otherwise go unseen.
     window.addEventListener('pointermove', this.boundHandlers.pointerMove)
+    // Non-passive, so a touch drag can keep the browser from panning (see handleTouchMove).
+    window.addEventListener('touchmove', this.boundHandlers.touchMove, { passive: false })
+    window.addEventListener('contextmenu', this.boundHandlers.contextMenu)
+
+    const delay = this.delayFor(this.activePointerType)
+    if (delay > 0) {
+      this.delayTimer = setTimeout(() => {
+        this.delayTimer = null
+        this.startDrag()
+        this.scheduleFrame()
+      }, delay)
+    }
   }
 
   private handlePointerMove(e: PointerEvent): void {
@@ -342,23 +381,14 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     if (this.state.startPosition && !this.state.isDragging) {
       const distance = this.getDistance(this.state.startPosition, currentPos)
 
-      if (distance >= this.config.dragThreshold) {
-        // Start drag
-        this.state.isDragging = true
-        this.suppressClickOnRelease = true
-
-        if (this.state.sourceElement && this.state.sourcePosition && this.state.sourceItem) {
-          // Set data-dragging attribute on source
-          this.state.sourceElement.setAttribute('data-dragging', 'true')
-
-          // Notify drag start
-          this.callbacks.onDragStart?.(
-            this.state.sourceElement,
-            this.state.sourcePosition,
-            this.state.sourceItem,
-          )
-        }
+      if (this.delayTimer !== null) {
+        // A long press stays put: moving away is a scroll or a swipe, which the browser handles.
+        if (distance > this.config.dragDelayTolerance) this.cleanup()
+        else this.lastPointerPos = currentPos
+        return
       }
+
+      if (distance >= this.config.dragThreshold) this.startDrag()
       return
     }
 
@@ -369,6 +399,44 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
     // Throttle updates to 60fps using RAF
     this.scheduleFrame()
+  }
+
+  private startDrag(): void {
+    this.state.isDragging = true
+    this.suppressClickOnRelease = true
+
+    if (this.state.sourceElement && this.state.sourcePosition && this.state.sourceItem) {
+      // Set data-dragging attribute on source
+      this.state.sourceElement.setAttribute('data-dragging', 'true')
+
+      // Notify drag start
+      this.callbacks.onDragStart?.(
+        this.state.sourceElement,
+        this.state.sourcePosition,
+        this.state.sourceItem,
+      )
+    }
+  }
+
+  /** The `dragDelay` for a pointer type (`''` from a constructed event counts as a mouse). */
+  private delayFor(pointerType: string): number {
+    const { dragDelay } = this.config
+    if (typeof dragDelay === 'number') return dragDelay
+    return dragDelay[pointerType === 'touch' || pointerType === 'pen' ? pointerType : 'mouse'] ?? 0
+  }
+
+  /**
+   * Once a touch press is a drag, the finger moves the item, not the page: a browser that starts
+   * panning would cancel the pointer. Before that, touches stay the browser's.
+   */
+  private handleTouchMove(e: TouchEvent): void {
+    if (this.state.isDragging && e.cancelable) e.preventDefault()
+  }
+
+  /** A long press opens no context menu (Android, iOS) while it is a drag or about to be one. */
+  private handleContextMenu(e: MouseEvent): void {
+    const pendingTouch = this.delayTimer !== null && this.activePointerType === 'touch'
+    if (this.state.isDragging || pendingTouch) e.preventDefault()
   }
 
   private scheduleFrame(): void {
@@ -500,6 +568,13 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
   private cleanup(): void {
     window.removeEventListener('pointermove', this.boundHandlers.pointerMove)
+    window.removeEventListener('touchmove', this.boundHandlers.touchMove)
+    window.removeEventListener('contextmenu', this.boundHandlers.contextMenu)
+    if (this.delayTimer !== null) {
+      clearTimeout(this.delayTimer)
+      this.delayTimer = null
+    }
+    this.activePointerType = ''
 
     // Release pointer capture if we own it.
     if (

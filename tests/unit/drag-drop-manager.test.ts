@@ -488,6 +488,126 @@ describe('DragDropManager', () => {
     expect(target.hasAttribute('data-hovered')).toBe(false)
   })
 
+  describe('dragDelay', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    const touchEvent = (type: string, x: number, y: number): MouseEvent => {
+      const event = pointerEvent(type, x, y)
+      Object.defineProperties(event, {
+        pointerType: { value: 'touch' },
+        isPrimary: { value: true },
+      })
+      return event
+    }
+
+    const createManager = (
+      container: HTMLElement,
+      dragDelay: NonNullable<ConstructorParameters<typeof BaseDragDropManager>[1]['dragDelay']>,
+      callbacks: Partial<ConstructorParameters<typeof BaseDragDropManager<Item, string>>[2]> = {},
+    ) =>
+      new DragDropManager<Item, string>(
+        container,
+        { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1, dragDelay },
+        {
+          getItemPosition: (element) => element.dataset.id ?? null,
+          getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+          ...callbacks,
+        },
+      )
+
+    test('starts the drag once the press is held, without a move', () => {
+      const { container, source } = setupDom()
+      const onDragStart = vi.fn()
+      const manager = createManager(container, 200, { onDragStart })
+
+      source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      // Within the tolerance, and past dragThreshold: still waiting.
+      source.dispatchEvent(pointerEvent('pointermove', 3, 0))
+      vi.advanceTimersByTime(199)
+      expect(manager.isDragging()).toBe(false)
+
+      vi.advanceTimersByTime(1)
+      expect(manager.isDragging()).toBe(true)
+      expect(onDragStart).toHaveBeenCalledOnce()
+      expect(source.getAttribute('data-dragging')).toBe('true')
+    })
+
+    test('releases the press when it moves past the tolerance during the delay', () => {
+      const { container, source } = setupDom()
+      const onDragStart = vi.fn()
+      const manager = createManager(container, 200, { onDragStart })
+
+      source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      source.dispatchEvent(pointerEvent('pointermove', 0, 8))
+      vi.advanceTimersByTime(500)
+
+      expect(manager.getState().startPosition).toBeNull()
+      expect(onDragStart).not.toHaveBeenCalled()
+      // The rest of the gesture is the browser's: no drag starts later either.
+      source.dispatchEvent(pointerEvent('pointermove', 0, 40))
+      expect(manager.isDragging()).toBe(false)
+    })
+
+    test('a tap during the delay is a click', () => {
+      const { container, source } = setupDom()
+      const onClick = vi.fn()
+      const manager = createManager(container, 200, { onClick })
+
+      source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      source.dispatchEvent(pointerEvent('pointerup', 1, 0))
+      vi.advanceTimersByTime(500)
+
+      expect(onClick).toHaveBeenCalledOnce()
+      expect(manager.isDragging()).toBe(false)
+    })
+
+    test('applies a per-type delay only to that pointer type', () => {
+      const { container, source } = setupDom()
+      const manager = createManager(container, { touch: 200 })
+
+      source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      source.dispatchEvent(pointerEvent('pointermove', 3, 0))
+      expect(manager.isDragging()).toBe(true)
+      source.dispatchEvent(pointerEvent('pointerup', 3, 0))
+
+      source.dispatchEvent(touchEvent('pointerdown', 0, 0))
+      source.dispatchEvent(touchEvent('pointermove', 3, 0))
+      expect(manager.isDragging()).toBe(false)
+      vi.advanceTimersByTime(200)
+      expect(manager.isDragging()).toBe(true)
+    })
+
+    test('keeps the page from panning and from opening a context menu during a touch drag', () => {
+      const { container, source } = setupDom()
+      createManager(container, { touch: 200 })
+      const cancelable = (type: string): Event => new Event(type, { cancelable: true })
+
+      source.dispatchEvent(touchEvent('pointerdown', 0, 0))
+      const earlyMove = cancelable('touchmove')
+      window.dispatchEvent(earlyMove)
+      expect(earlyMove.defaultPrevented).toBe(false)
+      const earlyMenu = cancelable('contextmenu')
+      window.dispatchEvent(earlyMenu)
+      expect(earlyMenu.defaultPrevented).toBe(true)
+
+      vi.advanceTimersByTime(200)
+      const dragMove = cancelable('touchmove')
+      window.dispatchEvent(dragMove)
+      expect(dragMove.defaultPrevented).toBe(true)
+
+      source.dispatchEvent(touchEvent('pointerup', 0, 0))
+      const afterMove = cancelable('touchmove')
+      window.dispatchEvent(afterMove)
+      expect(afterMove.defaultPrevented).toBe(false)
+    })
+  })
+
   test('treats short movement as click and calls onClick', () => {
     const { container, source } = setupDom()
     const onClick = vi.fn()

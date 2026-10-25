@@ -45,6 +45,8 @@ type DragDropConfig = {
   draggableKind: string | string[] // Required. data-kind value(s) for draggable elements.
   droppableKind: string | string[] // Required. data-kind value(s) for droppable elements.
   dragThreshold?: number // Default: 10. Pixels before drag starts.
+  dragDelay?: number | { mouse?: number; pen?: number; touch?: number } // Default: 0. Long-press ms before the drag starts.
+  dragDelayTolerance?: number // Default: 5. Pixels a press may move during dragDelay before it is released.
   clickThreshold?: number // Default: 10. Max pixels to still count as click.
   scrollThreshold?: number // Default: 100. Pixels from a scroll container's or the viewport's edge to auto-scroll.
   scrollSpeed?: number // Default: 10. Pixels per frame during auto-scroll; 0 disables it.
@@ -155,7 +157,9 @@ Style drag/hover feedback using `[data-dragging="true"]`, `[data-hovered="true"]
    - If `data-empty` is present → stop (not draggable).
    - `canDrag(element, position)` → if `false`, stop.
    - `getItemData(element, position)` resolves item data.
-2. **Pointer moves past `dragThreshold`** → drag starts:
+2. **Pointer moves past `dragThreshold`** (or, with a `dragDelay` for this pointer type, the press
+   is held that long without moving past `dragDelayTolerance`; moving further first releases the
+   press to the browser) → drag starts:
    - `data-dragging="true"` set on source element.
    - `onDragStart(element, position, item)` fires.
 3. **Pointer moves during drag** (RAF-throttled):
@@ -414,6 +418,10 @@ onDragEnd: (result) => {
 
 - Uses `requestAnimationFrame` for 60fps drag updates.
 - Uses pointer events (works with touch, mouse, and pen).
+- Touch: while a press is a drag, a non-passive `touchmove` listener prevents the browser's pan
+  (which would fire `pointercancel`) and `contextmenu` is prevented. Without `dragDelay`, swiping on
+  a draggable drags instead of scrolling; use `dragDelay: { touch: 250 }` for touch lists that must
+  scroll. On iOS add `-webkit-touch-callout: none; user-select: none` to draggables.
 - Uses `setPointerCapture` / `releasePointerCapture` when available.
 - Listens to `pointermove` on the window while a press is held, so a drag keeps working outside the
   container even after the source element leaves the DOM (a virtualized list unmounting the row, a

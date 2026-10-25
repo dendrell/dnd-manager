@@ -269,6 +269,8 @@ need to be recreated when state changes.
 | --------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `draggableKind` / `droppableKind` | String or string[] to match `data-kind`.                                                                 |
 | `dragThreshold`                   | Pixels before drag starts (default 10).                                                                  |
+| `dragDelay`                       | Long press: ms to hold before the drag starts (default 0). A number, or per type: `{ touch: 250 }`.      |
+| `dragDelayTolerance`              | Pixels a press may move during `dragDelay` before it is released to the browser (default 5).             |
 | `clickThreshold`                  | Max movement to still count as click (default 10).                                                       |
 | `scrollThreshold`                 | Distance from a scroll container's or the viewport's edge to start auto-scroll (default 100).            |
 | `scrollSpeed`                     | Auto-scroll speed in px per frame (default 10, `0` disables it).                                         |
@@ -293,6 +295,12 @@ need to be recreated when state changes.
 ### Notes
 
 - Uses `requestAnimationFrame` for 60fps updates; pointer events work with touch, mouse, and pen.
+- **Touch.** Once a touch press becomes a drag, the manager keeps the browser from panning (a
+  non-passive `touchmove` listener during the press) and from opening a long-press context menu, so
+  the drag is not cancelled. Without a delay, a swipe that starts on a draggable therefore drags
+  rather than scrolls. For lists that must also scroll by touch, use a long press:
+  `dragDelay: { touch: 250 }` — a quick swipe scrolls, holding still for 250ms picks the item up. On
+  iOS also add `-webkit-touch-callout: none; user-select: none` to draggables.
 - Auto-scroll scrolls the closest scroll container under the pointer (`overflow: auto | scroll`)
   that can still scroll toward the edge the pointer is near, nested ones first, and otherwise the
   window. It keeps scrolling while the pointer rests in the edge zone, and re-checks the hovered
