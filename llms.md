@@ -144,6 +144,8 @@ Style drag/hover feedback using `[data-dragging="true"]` and `[data-hovered="tru
 ## Callback lifecycle
 
 1. **pointerdown** on element with matching `data-kind`:
+   - Only the main button of the primary pointer counts: right/middle clicks and extra touches are
+     ignored.
    - `getItemPosition(element, kind)` resolves position.
    - If `data-empty` is present → stop (not draggable).
    - `canDrag(element, position)` → if `false`, stop.

@@ -273,6 +273,8 @@ need to be recreated when state changes.
 
 - **`data-kind`** — identifies draggable/droppable type; must match config.
 - **`data-empty`** — elements with this attribute are not draggable.
+- **Buttons** — only the main button of the primary pointer starts a drag; right-click (context
+  menus), middle-click and extra touches are left to the browser.
 - **`data-dragging`** — set to `"true"` on the source element during drag; removed on end/cancel.
 - **`data-hovered`** — set to `"true"` on the hovered droppable; removed when pointer leaves or drag
   ends.

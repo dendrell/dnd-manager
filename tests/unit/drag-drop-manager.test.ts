@@ -147,6 +147,30 @@ describe('DragDropManager', () => {
     expect(manager.getState().startPosition).toBeNull()
   })
 
+  test('ignores pointer down from a secondary button or a non-primary pointer', () => {
+    const { container, source } = setupDom()
+    const manager = new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item' },
+      {
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    for (const button of [1, 2]) {
+      const event = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button })
+      source.dispatchEvent(event)
+      expect(manager.getState().startPosition).toBeNull()
+      expect(event.defaultPrevented).toBe(false)
+    }
+
+    const secondTouch = new MouseEvent('pointerdown', { bubbles: true })
+    Object.defineProperty(secondTouch, 'isPrimary', { value: false })
+    source.dispatchEvent(secondTouch)
+    expect(manager.getState().startPosition).toBeNull()
+  })
+
   test('ignores pointer down when element is marked empty', () => {
     const { container, empty } = setupDom()
     const manager = new DragDropManager<Item, string>(

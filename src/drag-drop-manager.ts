@@ -228,6 +228,9 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
   private handlePointerDown(e: PointerEvent): void {
     if (this.state.startPosition) return
+    // Only the main button (or a touch/pen contact) of the primary pointer drags: a right-click
+    // opens a context menu and a middle-click auto-scrolls.
+    if (e.button !== 0 || e.isPrimary === false) return
 
     const target = e.target as HTMLElement
     const draggableMatch = this.findElementByKinds(target, this.draggableKinds)
