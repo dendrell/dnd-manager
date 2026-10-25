@@ -377,7 +377,7 @@ describe('DragDropManager', () => {
     expect(elementFromPointSpy).toHaveBeenCalled()
     expect(target.getAttribute('data-hovered')).toBe('true')
     expect(onDragMove).toHaveBeenCalled()
-    expect(scrollSpy).toHaveBeenCalledWith(-7, -7)
+    expect(scrollSpy).toHaveBeenCalledWith({ left: -7, top: -7, behavior: 'instant' })
 
     source.dispatchEvent(pointerEvent('pointermove', 500, 500))
     const secondRafCallback = rafCallback
@@ -573,11 +573,64 @@ describe('DragDropManager', () => {
     ;(runRaf as FrameRequestCallback)(0)
 
     expect(target.getAttribute('data-hovered')).toBe('true')
-    expect(scrollSpy).toHaveBeenCalledWith(9, 9)
+    expect(scrollSpy).toHaveBeenCalledWith({ left: 9, top: 9, behavior: 'instant' })
 
     source.dispatchEvent(pointerEvent('pointercancel', 1, 1))
     expect(target.hasAttribute('data-hovered')).toBe(false)
     expect(manager.isDragging()).toBe(false)
+  })
+
+  test('keeps auto-scrolling while the pointer rests at an edge, hit-testing after each step', () => {
+    const { container, source, target } = setupDom()
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb): number => {
+      frames.push(cb)
+      return frames.length
+    })
+    const runFrame = (): void => {
+      const frame = frames.shift()
+      if (!frame) throw new Error('No frame scheduled')
+      frame(0)
+    }
+    let scrollY = 0
+    vi.spyOn(window, 'scrollY', 'get').mockImplementation(() => scrollY)
+    const scrollSpy = vi.spyOn(window, 'scrollBy').mockImplementation(((
+      scroll: ScrollToOptions,
+    ) => {
+      // The page ends after two steps.
+      scrollY = Math.min(20, scrollY + (scroll.top ?? 0))
+    }) as typeof window.scrollBy)
+    // The content moves under the resting pointer: first the source, then the target.
+    const underPointer = [source, target, target]
+    mockElementFromPoint(() => underPointer.shift() ?? target)
+    const onDragMove = vi.fn()
+
+    new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1, scrollSpeed: 10 },
+      {
+        onDragMove,
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    const edge = window.innerHeight - 5
+    source.dispatchEvent(pointerEvent('pointerdown', 50, edge - 200))
+    source.dispatchEvent(pointerEvent('pointermove', 50, edge - 190))
+    source.dispatchEvent(pointerEvent('pointermove', 400, edge))
+    runFrame()
+    expect(source.getAttribute('data-hovered')).toBe('true')
+
+    // No further pointer move: the loop goes on by itself while the scroll moves.
+    runFrame()
+    expect(target.getAttribute('data-hovered')).toBe('true')
+    expect(source.hasAttribute('data-hovered')).toBe(false)
+    runFrame()
+    expect(scrollSpy).toHaveBeenCalledTimes(3)
+    expect(onDragMove).toHaveBeenCalledTimes(3)
+    // The last step hit the end of the page: no more frames until the pointer moves.
+    expect(frames).toHaveLength(0)
   })
 
   test('cancels an active drag when Escape is pressed', () => {

@@ -8,6 +8,8 @@
  * @template TPosition - The type representing position/coordinates (e.g., {x, y}, {box, cell}, etc.)
  */
 
+import { autoScrollStep } from './auto-scroll'
+
 export type DragDropConfig = {
   /**
    * Minimum distance in pixels the pointer must move before a drag operation starts.
@@ -31,8 +33,11 @@ export type DragDropConfig = {
   clickThreshold?: number
 
   /**
-   * Distance in pixels from viewport edge that triggers auto-scrolling during drag.
-   * When dragging near screen edges, the window automatically scrolls.
+   * Distance in pixels from an edge that triggers auto-scrolling during drag.
+   * Near an edge of the closest scroll container under the pointer that can still scroll that way
+   * (an `overflow: auto | scroll` element), that container scrolls; its zone is at most a quarter
+   * of its size. Otherwise the window scrolls near the viewport's edges. Scrolling continues while
+   * the pointer rests in the zone.
    * @default 100
    * @example
    * scrollThreshold: 50   // Start scrolling closer to edges
@@ -41,8 +46,8 @@ export type DragDropConfig = {
   scrollThreshold?: number
 
   /**
-   * Scroll speed in pixels per animation frame during auto-scroll.
-   * Higher values = faster scrolling when dragging near viewport edges.
+   * Scroll speed in pixels per animation frame during auto-scroll (`0` disables it).
+   * Higher values = faster scrolling when dragging near edges.
    * @default 10
    * @example
    * scrollSpeed: 5   // Slower, smoother scroll
@@ -314,42 +319,55 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     this.lastPointerPos = currentPos
 
     // Throttle updates to 60fps using RAF
-    if (this.rafId === null) {
-      this.rafId = requestAnimationFrame(() => {
-        this.rafId = null
-        if (!this.lastPointerPos) return
+    this.scheduleFrame()
+  }
 
-        const pos = this.lastPointerPos
+  private scheduleFrame(): void {
+    if (this.rafId !== null) return
+    this.rafId = requestAnimationFrame(() => {
+      this.rafId = null
+      this.runFrame()
+    })
+  }
 
-        // Find hovered droppable element
-        const elementUnderCursor = document.elementFromPoint(pos.x, pos.y) as HTMLElement
-        const droppableMatch = this.findElementByKinds(elementUnderCursor, this.droppableKinds)
-        const droppableElement = droppableMatch?.element ?? null
+  /** One drag frame: hover feedback, auto-scroll and `onDragMove` at the latest pointer position. */
+  private runFrame(): void {
+    const pos = this.lastPointerPos
+    if (!pos || !this.state.isDragging) return
 
-        // Update hover feedback
-        if (droppableElement !== this.state.lastHoveredElement) {
-          // Remove hover from previous element
-          if (this.state.lastHoveredElement) {
-            this.state.lastHoveredElement.removeAttribute('data-hovered')
-          }
+    // Find hovered droppable element
+    const elementUnderCursor = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null
+    const droppableMatch = this.findElementByKinds(elementUnderCursor, this.droppableKinds)
+    const droppableElement = droppableMatch?.element ?? null
 
-          // Add hover to current element (including the source element).
-          // This enables "drag over itself" states (e.g. combined data-dragging + data-hovered styling).
-          if (droppableElement) {
-            droppableElement.setAttribute('data-hovered', 'true')
-            this.state.lastHoveredElement = droppableElement
-          } else {
-            this.state.lastHoveredElement = null
-          }
-        }
+    // Update hover feedback
+    if (droppableElement !== this.state.lastHoveredElement) {
+      // Remove hover from previous element
+      if (this.state.lastHoveredElement) {
+        this.state.lastHoveredElement.removeAttribute('data-hovered')
+      }
 
-        // Auto-scroll
-        this.handleAutoScroll(pos)
-
-        // Notify drag move
-        this.callbacks.onDragMove?.(pos, this.state.lastHoveredElement)
-      })
+      // Add hover to current element (including the source element).
+      // This enables "drag over itself" states (e.g. combined data-dragging + data-hovered styling).
+      if (droppableElement) {
+        droppableElement.setAttribute('data-hovered', 'true')
+        this.state.lastHoveredElement = droppableElement
+      } else {
+        this.state.lastHoveredElement = null
+      }
     }
+
+    const scrolled = autoScrollStep(pos, elementUnderCursor, {
+      threshold: this.config.scrollThreshold,
+      speed: this.config.scrollSpeed,
+    })
+
+    // Notify drag move
+    this.callbacks.onDragMove?.(pos, this.state.lastHoveredElement)
+
+    // Keep scrolling while the pointer rests in an edge zone: the next frame also hit-tests again,
+    // since the content moved under the pointer.
+    if (scrolled) this.scheduleFrame()
   }
 
   private handlePointerUp(e: PointerEvent): void {
@@ -447,33 +465,6 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     window.addEventListener('click', block, true)
     const timer = setTimeout(release, 0)
     this.releaseClickBlocker = release
-  }
-
-  private handleAutoScroll(pos: PointerPosition): void {
-    const { scrollThreshold, scrollSpeed } = this.config
-    const viewportWidth = window.innerWidth
-    const viewportHeight = window.innerHeight
-
-    let scrollX = 0
-    let scrollY = 0
-
-    // Check horizontal scroll
-    if (pos.x < scrollThreshold) {
-      scrollX = -scrollSpeed
-    } else if (pos.x > viewportWidth - scrollThreshold) {
-      scrollX = scrollSpeed
-    }
-
-    // Check vertical scroll
-    if (pos.y < scrollThreshold) {
-      scrollY = -scrollSpeed
-    } else if (pos.y > viewportHeight - scrollThreshold) {
-      scrollY = scrollSpeed
-    }
-
-    if (scrollX !== 0 || scrollY !== 0) {
-      window.scrollBy(scrollX, scrollY)
-    }
   }
 
   private cleanup(): void {

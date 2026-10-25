@@ -259,15 +259,15 @@ need to be recreated when state changes.
 
 ### Manager config
 
-| Option                            | Description                                                     |
-| --------------------------------- | --------------------------------------------------------------- |
-| `draggableKind` / `droppableKind` | String or string[] to match `data-kind`.                        |
-| `dragThreshold`                   | Pixels before drag starts (default 10).                         |
-| `clickThreshold`                  | Max movement to still count as click (default 10).              |
-| `scrollThreshold`                 | Distance from viewport edge to start auto-scroll (default 100). |
-| `scrollSpeed`                     | Auto-scroll speed (default 10).                                 |
-| `cancelOnEscape`                  | Cancel drag on Escape (default true).                           |
-| `cancelOnPointerLeave`            | Cancel when pointer leaves window (default true).               |
+| Option                            | Description                                                                                   |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `draggableKind` / `droppableKind` | String or string[] to match `data-kind`.                                                      |
+| `dragThreshold`                   | Pixels before drag starts (default 10).                                                       |
+| `clickThreshold`                  | Max movement to still count as click (default 10).                                            |
+| `scrollThreshold`                 | Distance from a scroll container's or the viewport's edge to start auto-scroll (default 100). |
+| `scrollSpeed`                     | Auto-scroll speed in px per frame (default 10, `0` disables it).                              |
+| `cancelOnEscape`                  | Cancel drag on Escape (default true).                                                         |
+| `cancelOnPointerLeave`            | Cancel when pointer leaves window (default true).                                             |
 
 ### Conventions
 
@@ -284,6 +284,10 @@ need to be recreated when state changes.
 ### Notes
 
 - Uses `requestAnimationFrame` for 60fps updates; pointer events work with touch, mouse, and pen.
+- Auto-scroll scrolls the closest scroll container under the pointer (`overflow: auto | scroll`)
+  that can still scroll toward the edge the pointer is near, nested ones first, and otherwise the
+  window. It keeps scrolling while the pointer rests in the edge zone, and re-checks the hovered
+  droppable after each step. A container's zone is at most a quarter of its size.
 - The native `click` the browser fires after the release that ends a drag (on the source element,
   which holds pointer capture) is swallowed, so a draggable `<button>` or link is not activated by a
   drop. A press that never became a drag clicks as usual.

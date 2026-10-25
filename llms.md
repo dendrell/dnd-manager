@@ -46,8 +46,8 @@ type DragDropConfig = {
   droppableKind: string | string[] // Required. data-kind value(s) for droppable elements.
   dragThreshold?: number // Default: 10. Pixels before drag starts.
   clickThreshold?: number // Default: 10. Max pixels to still count as click.
-  scrollThreshold?: number // Default: 100. Pixels from viewport edge to auto-scroll.
-  scrollSpeed?: number // Default: 10. Pixels per frame during auto-scroll.
+  scrollThreshold?: number // Default: 100. Pixels from a scroll container's or the viewport's edge to auto-scroll.
+  scrollSpeed?: number // Default: 10. Pixels per frame during auto-scroll; 0 disables it.
   cancelOnEscape?: boolean // Default: true. Cancel drag on Escape key.
   cancelOnPointerLeave?: boolean // Default: true. Cancel drag when pointer leaves window.
 }
@@ -408,6 +408,9 @@ onDragEnd: (result) => {
 - Swallows the native `click` that follows the release ending a drag (also after Escape cancelled it
   while the pointer was down), so draggable buttons and links are not activated by a drop.
 - `data-dragging` and `data-hovered` attributes are always cleaned up automatically.
-- Auto-scroll activates when pointer is within `scrollThreshold` pixels of viewport edges during
-  drag.
+- Auto-scroll: within `scrollThreshold` px of an edge of the closest scroll container under the
+  pointer (`overflow: auto | scroll`, nested ones first; the zone is at most a quarter of the
+  container's size) that can still scroll that way, that container scrolls; otherwise the window
+  scrolls near the viewport's edges. It continues while the pointer rests in the zone (no pointer
+  move needed), and the hovered droppable and `onDragMove` update after each step.
 - `onDrop` fires before `onDragEnd` on successful drops.
