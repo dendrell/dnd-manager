@@ -55,7 +55,8 @@ Quick guide for AI coding agents working in `dnd-manager`.
   `CHANGELOG.md` sections by hand.
 - Pushing the tag runs `.github/workflows/release.yml`: it publishes to npm through trusted
   publishing (provenance unless the repository variable `NPM_PROVENANCE` is `false`) and creates the
-  GitHub release from the changelog section. Until `NPM_PUBLISH` is `true` it is a dry run.
+  GitHub release from the changelog section. Every `v*` tag push publishes; a manual run of the
+  workflow is a dry run.
 - Agents do not tag, push or publish unless the user asks.
 
 ## Coding Expectations

@@ -1,13 +1,11 @@
 # Publishes a release. `pnpm release:version <x.y.z>` commits the new version with its CHANGELOG.md
 # section and tags it; pushing the tag (vX.Y.Z) runs this workflow: the publish job checks the tag
 # against package.json, runs the checks, builds and publishes the package to npm, and the
-# github-release job creates the tag's GitHub release with its changelog section as notes.
+# github-release job creates the tag's GitHub release with its changelog section as notes. A manual
+# run (workflow_dispatch) is a dry run that publishes nothing and creates no GitHub release.
 #
-# Repository variables (Settings > Secrets and variables > Actions > Variables):
-# - NPM_PUBLISH: until it is "true", a tag push is a dry run that publishes nothing and creates no
-#   GitHub release. A manual run (workflow_dispatch) is always a dry run.
-# - NPM_PROVENANCE: "false" publishes without a provenance attestation; unset or anything else
-#   publishes with one.
+# Repository variable (Settings > Secrets and variables > Actions > Variables): NPM_PROVENANCE,
+# "false" publishes without a provenance attestation; unset or anything else publishes with one.
 #
 # npm trusts this workflow (trusted publishing: on npmjs.com, the package's Settings > Trusted
 # publisher > GitHub Actions, with this repository and the workflow file release.yml), so no token
@@ -74,8 +72,7 @@ jobs:
 
       - name: Publish
         env:
-          DRY_RUN:
-            ${{ (github.event_name == 'push' && vars.NPM_PUBLISH == 'true') && 'false' || 'true' }}
+          DRY_RUN: ${{ github.event_name != 'push' }}
           PROVENANCE: ${{ vars.NPM_PROVENANCE != 'false' }}
         run: |
           name="$(node -p 'require("./package.json").name')"
@@ -104,9 +101,7 @@ jobs:
   # re-run updates the notes of the release it created.
   github-release:
     needs: publish
-    if:
-      ${{ needs.publish.result == 'success' && github.event_name == 'push' && vars.NPM_PUBLISH ==
-      'true' }}
+    if: ${{ needs.publish.result == 'success' && github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
