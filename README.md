@@ -212,6 +212,11 @@ const rightManager = new DragDropManager(
 // Cleanup: destroy both
 ```
 
+Drops land on any matching droppable in the page by default (`dropScope: 'document'`). For
+independent widgets that share kinds but must not exchange items, set `dropScope: 'container'`.
+Managers may also nest: a press inside an inner manager's container belongs to the inner manager
+only.
+
 ---
 
 ## Dynamic drag ability
@@ -259,15 +264,16 @@ need to be recreated when state changes.
 
 ### Manager config
 
-| Option                            | Description                                                                                   |
-| --------------------------------- | --------------------------------------------------------------------------------------------- |
-| `draggableKind` / `droppableKind` | String or string[] to match `data-kind`.                                                      |
-| `dragThreshold`                   | Pixels before drag starts (default 10).                                                       |
-| `clickThreshold`                  | Max movement to still count as click (default 10).                                            |
-| `scrollThreshold`                 | Distance from a scroll container's or the viewport's edge to start auto-scroll (default 100). |
-| `scrollSpeed`                     | Auto-scroll speed in px per frame (default 10, `0` disables it).                              |
-| `cancelOnEscape`                  | Cancel drag on Escape (default true).                                                         |
-| `cancelOnPointerLeave`            | Cancel when pointer leaves window (default true).                                             |
+| Option                            | Description                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `draggableKind` / `droppableKind` | String or string[] to match `data-kind`.                                                                 |
+| `dragThreshold`                   | Pixels before drag starts (default 10).                                                                  |
+| `clickThreshold`                  | Max movement to still count as click (default 10).                                                       |
+| `scrollThreshold`                 | Distance from a scroll container's or the viewport's edge to start auto-scroll (default 100).            |
+| `scrollSpeed`                     | Auto-scroll speed in px per frame (default 10, `0` disables it).                                         |
+| `cancelOnEscape`                  | Cancel drag on Escape (default true).                                                                    |
+| `cancelOnPointerLeave`            | Cancel when pointer leaves window (default true).                                                        |
+| `dropScope`                       | `'document'` (default): drop on matching droppables anywhere; `'container'`: only inside this container. |
 
 ### Conventions
 

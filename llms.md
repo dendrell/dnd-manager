@@ -50,6 +50,7 @@ type DragDropConfig = {
   scrollSpeed?: number // Default: 10. Pixels per frame during auto-scroll; 0 disables it.
   cancelOnEscape?: boolean // Default: true. Cancel drag on Escape key.
   cancelOnPointerLeave?: boolean // Default: true. Cancel drag when pointer leaves window.
+  dropScope?: 'document' | 'container' // Default: 'document'. Where droppables are looked for.
 }
 ```
 
@@ -315,7 +316,9 @@ element from `dragPreview` state. The manager accepts a React ref
 Create separate `DragDropManager` instances with **compatible `data-kind`** and **shared
 callbacks**. Positions must identify items globally (e.g. `{ containerId, itemId }`).
 
-`onDrop` fires on the manager where the drag started.
+`onDrop` fires on the manager where the drag started. Droppables are found anywhere in the page by
+default (`dropScope: 'document'`); `dropScope: 'container'` keeps a manager's drops inside its own
+container. With nested containers, a press belongs to the innermost manager that accepts it.
 
 ```typescript
 type Position = { containerId: 'left' | 'right'; itemId: string }

@@ -336,6 +336,67 @@ describe('DragDropManager', () => {
     manager.destroy()
   })
 
+  test('lets only the innermost of nested managers take a press', () => {
+    document.body.innerHTML = `
+      <div id="outer">
+        <div id="outer-item" data-kind="item" data-id="outer-item"></div>
+        <div id="inner">
+          <div id="inner-item" data-kind="item" data-id="inner-item"></div>
+        </div>
+      </div>
+    `
+    const element = (id: string): HTMLElement => document.querySelector<HTMLElement>(`#${id}`)!
+    const callbacks = {
+      getItemPosition: (el: HTMLElement) => el.dataset.id ?? null,
+      getItemData: (el: HTMLElement) => ({ id: el.dataset.id ?? 'unknown' }),
+    }
+    const config = { draggableKind: 'item', droppableKind: 'item' }
+    const outer = new DragDropManager<Item, string>(element('outer'), config, callbacks)
+    const inner = new DragDropManager<Item, string>(element('inner'), config, callbacks)
+
+    element('inner-item').dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    expect(inner.getState().sourcePosition).toBe('inner-item')
+    expect(outer.getState().startPosition).toBeNull()
+    element('inner-item').dispatchEvent(pointerEvent('pointerup', 0, 0))
+
+    // The outer manager still takes presses outside the inner container.
+    element('outer-item').dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    expect(outer.getState().sourcePosition).toBe('outer-item')
+    expect(inner.getState().startPosition).toBeNull()
+  })
+
+  test('drops outside the container by default, and not with dropScope "container"', () => {
+    const { container, source } = setupDom()
+    const outside = document.body.appendChild(document.createElement('div'))
+    outside.dataset.kind = 'item'
+    outside.dataset.id = 'outside'
+    mockElementFromPoint(() => outside)
+    const drop = (dropScope?: 'document' | 'container') => {
+      const onDrop = vi.fn()
+      const onDragEnd = vi.fn()
+      const manager = new DragDropManager<Item, string>(
+        container,
+        { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1, dropScope },
+        {
+          onDrop,
+          onDragEnd,
+          getItemPosition: (element) => element.dataset.id ?? null,
+          getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+        },
+      )
+      source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+      source.dispatchEvent(pointerEvent('pointermove', 2, 0))
+      source.dispatchEvent(pointerEvent('pointerup', 300, 300))
+      manager.destroy()
+      return { onDrop, onDragEnd }
+    }
+
+    expect(drop().onDrop).toHaveBeenCalledWith('source', 'outside', { id: 'source' })
+    const scoped = drop('container')
+    expect(scoped.onDrop).not.toHaveBeenCalled()
+    expect(scoped.onDragEnd).toHaveBeenCalledWith(null)
+  })
+
   test('prevents default on valid pointer down', () => {
     const { container, source } = setupDom()
     const manager = new DragDropManager<Item, string>(

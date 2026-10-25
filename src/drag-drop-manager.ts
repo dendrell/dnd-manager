@@ -10,6 +10,12 @@
 
 import { autoScrollStep } from './auto-scroll'
 
+/**
+ * Presses a manager took: with nested containers the inner manager hears the `pointerdown` first
+ * and takes it, and the outer ones leave it alone.
+ */
+const claimedPresses = new WeakSet<Event>()
+
 export type DragDropConfig = {
   /**
    * Minimum distance in pixels the pointer must move before a drag operation starts.
@@ -93,6 +99,16 @@ export type DragDropConfig = {
    * droppableKind: 'zone'   // Can drop on zones
    */
   droppableKind: string | string[]
+
+  /**
+   * Where droppables are looked for under the pointer.
+   * - `'document'`: anywhere in the page, so items can move to another manager's container (a box
+   *   and a party panel each with its own manager).
+   * - `'container'`: only inside this manager's container, for independent widgets on one page
+   *   that share kinds.
+   * @default 'document'
+   */
+  dropScope?: 'document' | 'container'
 }
 
 export type PointerPosition = {
@@ -201,6 +217,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       cancelOnPointerLeave: config.cancelOnPointerLeave ?? true,
       draggableKind: config.draggableKind,
       droppableKind: config.droppableKind,
+      dropScope: config.dropScope ?? 'document',
     }
     this.draggableKinds = this.normalizeKindList(this.config.draggableKind)
     this.droppableKinds = this.normalizeKindList(this.config.droppableKind)
@@ -236,6 +253,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // middle-click auto-scrolls. An extra finger is part of a pinch, not a drag. (Only touch has
     // non-primary pointers; a constructed PointerEvent defaults to `isPrimary: false`.)
     if (e.button !== 0 || (e.pointerType === 'touch' && !e.isPrimary)) return
+    if (claimedPresses.has(e)) return
 
     const target = e.target as HTMLElement
     const draggableMatch = this.findElementByKinds(target, this.draggableKinds)
@@ -259,6 +277,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     // Get item data
     const item = this.callbacks.getItemData?.(draggableElement, position) ?? null
     if (!item) return
+
+    claimedPresses.add(e)
 
     // Prevent text selection during potential drag
     e.preventDefault()
@@ -341,7 +361,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
     // Find hovered droppable element
     const elementUnderCursor = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null
-    const droppableMatch = this.findElementByKinds(elementUnderCursor, this.droppableKinds)
+    const droppableMatch = this.findDroppable(elementUnderCursor)
     const droppableElement = droppableMatch?.element ?? null
 
     // Update hover feedback
@@ -408,7 +428,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
     // Find drop target
     const target = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement
-    const droppableMatch = this.findElementByKinds(target, this.droppableKinds)
+    const droppableMatch = this.findDroppable(target)
     const droppableElement = droppableMatch?.element ?? null
 
     if (droppableElement && droppableMatch) {
@@ -539,6 +559,16 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   private normalizeKindList(kinds: string | string[]): string[] {
     const values = Array.isArray(kinds) ? kinds : [kinds]
     return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+  }
+
+  /** The droppable around `element` (the one under the pointer), within `dropScope`. */
+  private findDroppable(
+    element: HTMLElement | null,
+  ): { element: HTMLElement; kind: string } | null {
+    if (this.config.dropScope === 'container' && !(element && this.container.contains(element))) {
+      return null
+    }
+    return this.findElementByKinds(element, this.droppableKinds)
   }
 
   /**
