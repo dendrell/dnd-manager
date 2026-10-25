@@ -561,6 +561,78 @@ describe('DragDropManager', () => {
     expect(manager.isDragging()).toBe(false)
   })
 
+  test('marks a droppable canDrop rejects as invalid, and does not drop on it', () => {
+    const { container, source, target } = setupDom()
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb): number => {
+      frames.push(cb)
+      return frames.length
+    })
+    let underPointer: HTMLElement = target
+    mockElementFromPoint(() => underPointer)
+    const canDrop = vi.fn((_from: string, to: string) => to !== 'target')
+    const onDragMove = vi.fn()
+    const onDrop = vi.fn()
+    const onDragEnd = vi.fn()
+    new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1, scrollSpeed: 0 },
+      {
+        canDrop,
+        onDragMove,
+        onDrop,
+        onDragEnd,
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    source.dispatchEvent(pointerEvent('pointermove', 2, 0))
+    source.dispatchEvent(pointerEvent('pointermove', 50, 50))
+    frames.shift()?.(0)
+    expect(canDrop).toHaveBeenLastCalledWith('source', 'target', { id: 'source' })
+    expect(target.getAttribute('data-drop-invalid')).toBe('true')
+    expect(target.hasAttribute('data-hovered')).toBe(false)
+    expect(onDragMove).toHaveBeenLastCalledWith({ x: 50, y: 50 }, null)
+
+    // Over an accepted droppable (here the source itself) the marks swap.
+    underPointer = source
+    source.dispatchEvent(pointerEvent('pointermove', 5, 5))
+    frames.shift()?.(0)
+    expect(target.hasAttribute('data-drop-invalid')).toBe(false)
+    expect(source.getAttribute('data-hovered')).toBe('true')
+
+    underPointer = target
+    source.dispatchEvent(pointerEvent('pointermove', 50, 50))
+    frames.shift()?.(0)
+    source.dispatchEvent(pointerEvent('pointerup', 50, 50))
+    expect(onDrop).not.toHaveBeenCalled()
+    expect(onDragEnd).toHaveBeenCalledWith(null)
+    expect(target.hasAttribute('data-drop-invalid')).toBe(false)
+  })
+
+  test('drops where canDrop accepts', () => {
+    const { container, source, target } = setupDom()
+    mockElementFromPoint(() => target)
+    const onDrop = vi.fn()
+    new DragDropManager<Item, string>(
+      container,
+      { draggableKind: 'item', droppableKind: 'item', dragThreshold: 1 },
+      {
+        canDrop: () => true,
+        onDrop,
+        getItemPosition: (element) => element.dataset.id ?? null,
+        getItemData: (element) => ({ id: element.dataset.id ?? 'unknown' }),
+      },
+    )
+
+    source.dispatchEvent(pointerEvent('pointerdown', 0, 0))
+    source.dispatchEvent(pointerEvent('pointermove', 2, 0))
+    source.dispatchEvent(pointerEvent('pointerup', 50, 50))
+    expect(onDrop).toHaveBeenCalledWith('source', 'target', { id: 'source' })
+  })
+
   test('does not call onDrop when drop target has no position', () => {
     const { container, source, target } = setupDom()
     const onDrop = vi.fn()

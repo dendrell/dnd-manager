@@ -251,16 +251,17 @@ need to be recreated when state changes.
 
 ### Callbacks
 
-| Callback                                             | Purpose                                                                                                                                       |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getItemPosition(element, kind)`                     | Return position object from DOM (e.g. `{ row, col }`) or `null`.                                                                              |
-| `getItemData(element, position)`                     | Return item data for the element at `position`.                                                                                               |
-| `canDrag(element, position)`                         | Optional. Return `false` to block drag on this pointer down.                                                                                  |
-| `onDragStart(element, position, item)`               | Show preview, update source appearance.                                                                                                       |
-| `onDragMove(pointerPosition, hoveredElement)`        | Update preview position.                                                                                                                      |
-| `onDrop(sourcePosition, targetPosition, sourceItem)` | Called when dropped on valid target; update DOM/state.                                                                                        |
-| `onDragEnd(result)`                                  | Always called when drag ends. `result` = `{ sourcePosition, targetPosition, sourceItem }` or `null`. Use for cleanup and optional reordering. |
-| `onClick(element, position)`                         | Click/tap on draggable element.                                                                                                               |
+| Callback                                              | Purpose                                                                                                                                                                              |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `getItemPosition(element, kind)`                      | Return position object from DOM (e.g. `{ row, col }`) or `null`.                                                                                                                     |
+| `getItemData(element, position)`                      | Return item data for the element at `position`.                                                                                                                                      |
+| `canDrag(element, position)`                          | Optional. Return `false` to block drag on this pointer down.                                                                                                                         |
+| `canDrop(sourcePosition, targetPosition, sourceItem)` | Optional. Return `false` to reject the droppable under the pointer (checked every frame and at the drop): it gets `data-drop-invalid`, and a drop there ends with `onDragEnd(null)`. |
+| `onDragStart(element, position, item)`                | Show preview, update source appearance.                                                                                                                                              |
+| `onDragMove(pointerPosition, hoveredElement)`         | Update preview position.                                                                                                                                                             |
+| `onDrop(sourcePosition, targetPosition, sourceItem)`  | Called when dropped on valid target; update DOM/state.                                                                                                                               |
+| `onDragEnd(result)`                                   | Always called when drag ends. `result` = `{ sourcePosition, targetPosition, sourceItem }` or `null`. Use for cleanup and optional reordering.                                        |
+| `onClick(element, position)`                          | Click/tap on draggable element.                                                                                                                                                      |
 
 ### Manager config
 
@@ -284,6 +285,8 @@ need to be recreated when state changes.
 - **`data-dragging`** — set to `"true"` on the source element during drag; removed on end/cancel.
 - **`data-hovered`** — set to `"true"` on the hovered droppable; removed when pointer leaves or drag
   ends.
+- **`data-drop-invalid`** — set to `"true"` instead of `data-hovered` on a hovered droppable that
+  `canDrop` rejects (e.g. a full party, a locked box); style it as "not allowed".
 - **Preview** — implement in `onDragStart` / `onDragMove` / `onDragEnd`, or use
   `DragPreviewController`.
 

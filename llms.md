@@ -64,6 +64,8 @@ type DragDropCallbacks<TItem, TPosition> = {
   // Optional
   getItemData?: (element: HTMLElement, position: TPosition) => TItem | null
   canDrag?: (element: HTMLElement, position: TPosition) => boolean
+  // false rejects the droppable under the pointer (every frame, and at the drop)
+  canDrop?: (sourcePosition: TPosition, targetPosition: TPosition, sourceItem: TItem) => boolean
   onDragStart?: (element: HTMLElement, position: TPosition, item: TItem) => void
   onDragMove?: (pos: PointerPosition, hoveredElement: HTMLElement | null) => void
   onDrop?: (sourcePosition: TPosition, targetPosition: TPosition, sourceItem: TItem) => void
@@ -131,14 +133,16 @@ new DragPreviewController(options?: DragPreviewControllerOptions)
 
 ## Data attribute conventions
 
-| Attribute       | Purpose                                                                                                      |
-| --------------- | ------------------------------------------------------------------------------------------------------------ |
-| `data-kind`     | Identifies draggable/droppable type. Must match `draggableKind`/`droppableKind` in config.                   |
-| `data-empty`    | Presence of this attribute (any value) makes the element non-draggable.                                      |
-| `data-dragging` | Set to `"true"` by the manager on the source element during drag. Removed on end/cancel.                     |
-| `data-hovered`  | Set to `"true"` by the manager on the currently hovered droppable. Removed when pointer leaves or drag ends. |
+| Attribute           | Purpose                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `data-kind`         | Identifies draggable/droppable type. Must match `draggableKind`/`droppableKind` in config.                   |
+| `data-empty`        | Presence of this attribute (any value) makes the element non-draggable.                                      |
+| `data-dragging`     | Set to `"true"` by the manager on the source element during drag. Removed on end/cancel.                     |
+| `data-hovered`      | Set to `"true"` by the manager on the currently hovered droppable. Removed when pointer leaves or drag ends. |
+| `data-drop-invalid` | Set to `"true"` instead of `data-hovered` on a hovered droppable that `canDrop` rejects.                     |
 
-Style drag/hover feedback using `[data-dragging="true"]` and `[data-hovered="true"]` selectors.
+Style drag/hover feedback using `[data-dragging="true"]`, `[data-hovered="true"]` and
+`[data-drop-invalid="true"]` selectors.
 
 ---
 
@@ -155,17 +159,20 @@ Style drag/hover feedback using `[data-dragging="true"]` and `[data-hovered="tru
    - `data-dragging="true"` set on source element.
    - `onDragStart(element, position, item)` fires.
 3. **Pointer moves during drag** (RAF-throttled):
-   - `onDragMove(pointerPosition, hoveredDroppable)` fires.
-   - `data-hovered="true"` toggled on hovered droppable.
-4. **pointerup on valid droppable target**:
+   - `canDrop(sourcePosition, targetPosition, sourceItem)` (if given) checks the hovered droppable.
+   - `data-hovered="true"` toggled on an accepted hovered droppable, `data-drop-invalid="true"` on a
+     rejected one.
+   - `onDragMove(pointerPosition, hoveredDroppable)` fires (`null` over a rejected droppable).
+4. **pointerup on valid droppable target** (`canDrop` checked again):
    - `onDrop(sourcePosition, targetPosition, sourceItem)` fires.
    - `onDragEnd({ sourcePosition, targetPosition, sourceItem })` fires.
-5. **Drag cancelled** (Escape, pointer leave, `pointercancel`, or drop on non-target):
+5. **Drag cancelled** (Escape, pointer leave, `pointercancel`, or drop on a non-target or a rejected
+   one):
    - `onDragEnd(null)` fires.
 6. **Click** (pointer up before `dragThreshold` and within `clickThreshold`):
    - `onClick(element, position)` fires.
 
-`data-dragging` and `data-hovered` are always cleaned up on drag end/cancel.
+`data-dragging`, `data-hovered` and `data-drop-invalid` are always cleaned up on drag end/cancel.
 
 ---
 
@@ -413,7 +420,8 @@ onDragEnd: (result) => {
   framework moving the node), which ends pointer capture.
 - Swallows the native `click` that follows the release ending a drag (also after Escape cancelled it
   while the pointer was down), so draggable buttons and links are not activated by a drop.
-- `data-dragging` and `data-hovered` attributes are always cleaned up automatically.
+- `data-dragging`, `data-hovered` and `data-drop-invalid` attributes are always cleaned up
+  automatically.
 - Auto-scroll: within `scrollThreshold` px of an edge of the closest scroll container under the
   pointer (`overflow: auto | scroll`, nested ones first; the zone is at most a quarter of the
   container's size) that can still scroll that way, that container scrolls; otherwise the window

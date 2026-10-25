@@ -126,9 +126,15 @@ export type DragEndResult<TItem, TPosition> = {
 export type DragDropCallbacks<TItem, TPosition> = {
   /** Called when determining if an element can be dragged */
   canDrag?: (element: HTMLElement, position: TPosition) => boolean
+  /**
+   * Called for the droppable under the pointer on every drag frame, and again at the drop: return
+   * `false` to reject it. A rejected droppable gets `data-drop-invalid` instead of `data-hovered`,
+   * and a drop on it ends the drag with `onDragEnd(null)`. Keep it cheap.
+   */
+  canDrop?: (sourcePosition: TPosition, targetPosition: TPosition, sourceItem: TItem) => boolean
   /** Called when drag starts (after threshold is met) */
   onDragStart?: (element: HTMLElement, position: TPosition, item: TItem) => void
-  /** Called continuously during drag */
+  /** Called continuously during drag, with the droppable that would receive a drop (or null) */
   onDragMove?: (pos: PointerPosition, hoveredElement: HTMLElement | null) => void
   /** Called when item is dropped on a valid target */
   onDrop?: (sourcePosition: TPosition, targetPosition: TPosition, sourceItem: TItem) => void
@@ -150,8 +156,36 @@ type DragState<TItem, TPosition> = {
   activePointerId: number | null
   isDragging: boolean
   lastHoveredElement: HTMLElement | null
+  /** The droppable under the pointer that `canDrop` rejected (marked `data-drop-invalid`). */
+  lastInvalidElement: HTMLElement | null
   /** Set when drop on valid target; passed to onDragEnd in cleanup */
   lastDropResult: DragEndResult<TItem, TPosition> | null
+}
+
+/** Moves the boolean attribute `name` from `from` to `to`, and returns `to`. */
+function moveMark(
+  name: string,
+  from: HTMLElement | null,
+  to: HTMLElement | null,
+): HTMLElement | null {
+  if (from === to) return to
+  from?.removeAttribute(name)
+  to?.setAttribute(name, 'true')
+  return to
+}
+
+function idleState<TItem, TPosition>(): DragState<TItem, TPosition> {
+  return {
+    startPosition: null,
+    sourceElement: null,
+    sourcePosition: null,
+    sourceItem: null,
+    activePointerId: null,
+    isDragging: false,
+    lastHoveredElement: null,
+    lastInvalidElement: null,
+    lastDropResult: null,
+  }
 }
 
 export class DragDropManager<TItem = unknown, TPosition = unknown> {
@@ -160,16 +194,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   private draggableKinds: string[]
   private droppableKinds: string[]
   private callbacks: DragDropCallbacks<TItem, TPosition>
-  private state: DragState<TItem, TPosition> = {
-    startPosition: null,
-    sourceElement: null,
-    sourcePosition: null,
-    sourceItem: null,
-    activePointerId: null,
-    isDragging: false,
-    lastHoveredElement: null,
-    lastDropResult: null,
-  }
+  private state: DragState<TItem, TPosition> = idleState()
   private rafId: number | null = null
   private lastPointerPos: PointerPosition | null = null
   /**
@@ -361,25 +386,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
 
     // Find hovered droppable element
     const elementUnderCursor = document.elementFromPoint(pos.x, pos.y) as HTMLElement | null
-    const droppableMatch = this.findDroppable(elementUnderCursor)
-    const droppableElement = droppableMatch?.element ?? null
-
-    // Update hover feedback
-    if (droppableElement !== this.state.lastHoveredElement) {
-      // Remove hover from previous element
-      if (this.state.lastHoveredElement) {
-        this.state.lastHoveredElement.removeAttribute('data-hovered')
-      }
-
-      // Add hover to current element (including the source element).
-      // This enables "drag over itself" states (e.g. combined data-dragging + data-hovered styling).
-      if (droppableElement) {
-        droppableElement.setAttribute('data-hovered', 'true')
-        this.state.lastHoveredElement = droppableElement
-      } else {
-        this.state.lastHoveredElement = null
-      }
-    }
+    this.markTarget(this.findDroppable(elementUnderCursor))
 
     const scrolled = autoScrollStep(pos, elementUnderCursor, {
       threshold: this.config.scrollThreshold,
@@ -432,7 +439,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     const droppableElement = droppableMatch?.element ?? null
 
     if (droppableElement && droppableMatch) {
-      const targetPosition = this.callbacks.getItemPosition(droppableElement, droppableMatch.kind)
+      const targetPosition = this.acceptedPosition(droppableMatch)
 
       if (targetPosition) {
         const result: DragEndResult<TItem, TPosition> = {
@@ -514,10 +521,8 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
       this.state.sourceElement.removeAttribute('data-dragging')
     }
 
-    // Remove hover attribute
-    if (this.state.lastHoveredElement) {
-      this.state.lastHoveredElement.removeAttribute('data-hovered')
-    }
+    // Remove hover attributes
+    this.markTarget(null)
 
     // Cancel RAF
     if (this.rafId !== null) {
@@ -531,16 +536,7 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
     }
 
     // Reset state
-    this.state = {
-      startPosition: null,
-      sourceElement: null,
-      sourcePosition: null,
-      sourceItem: null,
-      activePointerId: null,
-      isDragging: false,
-      lastHoveredElement: null,
-      lastDropResult: null,
-    }
+    this.state = idleState()
     this.lastPointerPos = null
   }
 
@@ -559,6 +555,43 @@ export class DragDropManager<TItem = unknown, TPosition = unknown> {
   private normalizeKindList(kinds: string | string[]): string[] {
     const values = Array.isArray(kinds) ? kinds : [kinds]
     return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+  }
+
+  /** The target position of the droppable `match` if the current source may drop there. */
+  private acceptedPosition(match: { element: HTMLElement; kind: string }): TPosition | null {
+    const { sourcePosition, sourceItem } = this.state
+    const targetPosition = this.callbacks.getItemPosition(match.element, match.kind)
+    if (targetPosition === null || sourcePosition === null || sourceItem === null) return null
+    if (
+      this.callbacks.canDrop &&
+      !this.callbacks.canDrop(sourcePosition, targetPosition, sourceItem)
+    ) {
+      return null
+    }
+    return targetPosition
+  }
+
+  /**
+   * Marks the droppable under the pointer: `data-hovered` when it would receive a drop (also the
+   * source itself, for "drag over itself" styling), `data-drop-invalid` when `canDrop` rejects it.
+   * Without `canDrop` every droppable is marked hovered.
+   */
+  private markTarget(match: { element: HTMLElement; kind: string } | null): void {
+    const accepted =
+      match && (!this.callbacks.canDrop || this.acceptedPosition(match) !== null)
+        ? match.element
+        : null
+    const rejected = match && !accepted ? match.element : null
+    this.state.lastHoveredElement = moveMark(
+      'data-hovered',
+      this.state.lastHoveredElement,
+      accepted,
+    )
+    this.state.lastInvalidElement = moveMark(
+      'data-drop-invalid',
+      this.state.lastInvalidElement,
+      rejected,
+    )
   }
 
   /** The droppable around `element` (the one under the pointer), within `dropScope`. */
