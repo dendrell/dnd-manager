@@ -11,6 +11,26 @@ export type DragPreviewControllerOptions = {
 
 const OFFSCREEN_TRANSFORM = 'translate(-9999px, -9999px)'
 
+/**
+ * Attributes of the source (and its descendants) that belong to its place in the page or to the
+ * drag, not to its look: a clone keeping them would duplicate ids, join radio groups, count as a
+ * draggable or droppable, and match `[data-dragging]` placeholder styles.
+ */
+const SOURCE_ONLY_ATTRIBUTES = [
+  'id',
+  'name',
+  'data-kind',
+  'data-dragging',
+  'data-hovered',
+  'data-drop-invalid',
+]
+
+function stripSourceAttributes(clone: HTMLElement): void {
+  for (const element of [clone, ...clone.querySelectorAll('*')]) {
+    for (const name of SOURCE_ONLY_ATTRIBUTES) element.removeAttribute(name)
+  }
+}
+
 function normalizeClassNames(className: string | string[] | undefined): string[] {
   if (!className) return []
   return Array.isArray(className) ? className : [className]
@@ -41,7 +61,11 @@ export class DragPreviewController {
     const computed = window.getComputedStyle(element)
     const appendTo = this.options.appendTo ?? document.body
 
+    stripSourceAttributes(clone)
+    // A picture of the source: not focusable (a tabindex is copied), not announced.
+    clone.setAttribute('inert', '')
     clone.setAttribute('aria-hidden', 'true')
+    clone.setAttribute('data-drag-preview', '')
     clone.style.position = 'fixed'
     clone.style.left = '0'
     clone.style.top = '0'

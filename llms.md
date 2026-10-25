@@ -127,7 +127,13 @@ new DragPreviewController(options?: DragPreviewControllerOptions)
 
 ### Methods
 
-- `startFromElement(element: HTMLElement)` — clones element and shows preview.
+- `startFromElement(element: HTMLElement)` — clones element and shows preview. The clone (and its
+  descendants) loses `id`, `name`, `data-kind`, `data-dragging`, `data-hovered` and
+  `data-drop-invalid`, so it duplicates no ids, joins no radio group, is no draggable/droppable and
+  does not match placeholder styles; it is `inert`, `aria-hidden` and marked `data-drag-preview` for
+  styling. Classes and other attributes stay. In `document.body` it loses descendant selectors
+  (`.box .slot`) and custom properties inherited from the source's ancestors: copy what it needs
+  with `copyComputedStyles`, or render your own preview from the callbacks.
 - `moveToPointer(pos: PointerPosition)` — updates position to follow cursor.
 - `stop()` — removes preview element.
 - `destroy()` — alias for `stop()`.

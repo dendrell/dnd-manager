@@ -39,6 +39,35 @@ describe('DragPreviewController', () => {
     expect(clone.textContent).toBe('Drag me')
   })
 
+  test("drops the source's identity and drag state from the clone, and makes it inert", () => {
+    const source = createSourceElement()
+    source.id = 'slot-1'
+    source.tabIndex = 0
+    source.dataset.kind = 'slot'
+    source.dataset.dragging = 'true'
+    source.dataset.hovered = 'true'
+    source.dataset.testid = 'slot'
+    source.innerHTML = `<span id="name-1" data-kind="badge">Pikachu</span><input type="radio" name="pick" checked>`
+    const controller = new DragPreviewController()
+
+    controller.startFromElement(source)
+
+    const clone = document.body.lastElementChild as HTMLElement
+    for (const name of ['id', 'data-kind', 'data-dragging', 'data-hovered']) {
+      expect(clone.hasAttribute(name)).toBe(false)
+    }
+    expect(clone.querySelector('[id], [data-kind], [name]')).toBeNull()
+    expect(document.querySelectorAll('#slot-1, #name-1')).toHaveLength(2)
+    // The source's radio stays checked: the clone's is in no group.
+    expect(source.querySelector('input')!.checked).toBe(true)
+    expect(clone.hasAttribute('inert')).toBe(true)
+    expect(clone.hasAttribute('data-drag-preview')).toBe(true)
+    // What styles it stays: classes and the other attributes.
+    expect(clone.className).toBe('source-item')
+    expect(clone.dataset.testid).toBe('slot')
+    expect(clone.textContent).toBe('Pikachu')
+  })
+
   test('moves clone using centered cursor transform by default', () => {
     const source = createSourceElement()
     const controller = new DragPreviewController()

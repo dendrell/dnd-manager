@@ -78,6 +78,14 @@ use `onDragEnd(result)` for cleanup and optional reordering (see below).
 `DragPreviewController` gives a clone of the dragged element that follows the cursor
 (`position: fixed`, `pointer-events: none`). Reduces drift in scrolled containers.
 
+The clone is a picture of the source: it drops `id`, `name`, `data-kind` and the drag attributes
+(`data-dragging`, `data-hovered`, `data-drop-invalid`), so placeholder styles such as
+`[data-dragging] { opacity: .4 }` don't hit it, and it is `inert`. Style it with
+`[data-drag-preview]`. Appended to `document.body`, it loses descendant selectors (`.box .slot`) and
+custom properties inherited from the source's ancestors; copy what it needs with
+`copyComputedStyles` (e.g. `['--slot-bg']`), or render your own preview from `onDragStart` /
+`onDragMove` / `onDragEnd`.
+
 ```typescript
 import { DragPreviewController, DragDropManager, type DragDropCallbacks } from 'dnd-manager'
 
